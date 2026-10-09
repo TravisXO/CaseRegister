@@ -47,6 +47,15 @@ REVOKE CREATE ON SCHEMA public FROM case_register_app;
 -- Row-level data access on existing tables.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO case_register_app;
 
+-- The audit log is append-only: the application can add rows and read them, never change or remove one.
+DO $$
+BEGIN
+    IF to_regclass('public.audit_log') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.audit_log FROM case_register_app;
+    END IF;
+END
+$$;
+
 -- The runtime role has no business with the migration history: only the owner applies migrations.
 DO $$
 BEGIN

@@ -59,6 +59,36 @@ public partial class AppRoleGrantsTests(PostgresFixture postgres)
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, denied.SqlState);
     }
 
+    private const string InsertAuditRow =
+        "INSERT INTO audit_log (id, action, created_at, updated_at) VALUES (gen_random_uuid(), 'Probe', now(), now())";
+
+    [Fact]
+    public async Task The_app_role_can_add_and_read_audit_rows()
+    {
+        var owner = await MigratedDatabaseWithGrantsAsync();
+        var app = PostgresFixture.AsAppRole(owner);
+
+        await PostgresFixture.ExecuteAsync(app, InsertAuditRow);
+
+        Assert.Equal(1, await PostgresFixture.ScalarAsync<long>(app, "SELECT count(*) FROM audit_log"));
+    }
+
+    [Theory]
+    [InlineData("UPDATE audit_log SET detail = 'tampered'")]
+    [InlineData("DELETE FROM audit_log")]
+    [InlineData("TRUNCATE audit_log")]
+    public async Task The_audit_log_is_append_only_for_the_app_role(string statement)
+    {
+        var owner = await MigratedDatabaseWithGrantsAsync();
+        var app = PostgresFixture.AsAppRole(owner);
+        await PostgresFixture.ExecuteAsync(app, InsertAuditRow);
+
+        var denied = await Assert.ThrowsAsync<PostgresException>(() => PostgresFixture.ExecuteAsync(app, statement));
+
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, denied.SqlState);
+        Assert.Equal(1, await PostgresFixture.ScalarAsync<long>(app, "SELECT count(*) FROM audit_log"));
+    }
+
     [Fact]
     public async Task The_app_role_cannot_touch_the_migration_history()
     {

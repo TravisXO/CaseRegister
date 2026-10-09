@@ -1,7 +1,4 @@
-using CaseRegister.Tests.Architecture;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
+using CaseRegister.Tests.Testing;
 
 namespace CaseRegister.Tests.Configuration;
 
@@ -9,27 +6,23 @@ namespace CaseRegister.Tests.Configuration;
 [Collection(nameof(StartupConfigurationTests))]
 public sealed class StartupConfigurationTests : IDisposable
 {
-    private const string EnvironmentVariable = "ConnectionStrings__Default";
-    private readonly string? _originalEnvironmentValue = Environment.GetEnvironmentVariable(EnvironmentVariable);
+    private const string DefaultConnectionVariable = "ConnectionStrings__Default";
+    private readonly string? _originalEnvironmentValue = Environment.GetEnvironmentVariable(DefaultConnectionVariable);
 
     public StartupConfigurationTests()
     {
         // A developer machine may have the real connection string in the environment.
-        Environment.SetEnvironmentVariable(EnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(DefaultConnectionVariable, null);
     }
 
-    public void Dispose() => Environment.SetEnvironmentVariable(EnvironmentVariable, _originalEnvironmentValue);
+    public void Dispose() => Environment.SetEnvironmentVariable(DefaultConnectionVariable, _originalEnvironmentValue);
 
     [Fact]
     public void The_app_fails_at_startup_when_the_default_connection_string_is_missing()
     {
-        // The Testing environment does not load user-secrets, so nothing supplies the value.
-        using var factory = CreateFactory(settings: null);
+        using var factory = ApiFactory.WithoutDatabase(settings => settings.Remove("ConnectionStrings:Default"));
 
-        var failure = Record.Exception(() => factory.CreateClient());
-
-        Assert.NotNull(failure);
-        Assert.Contains("ConnectionStrings:Default", failure.ToString(), StringComparison.Ordinal);
+        AssertStartupFailsMentioning(factory, "ConnectionStrings:Default");
     }
 
     [Theory]
@@ -37,39 +30,78 @@ public sealed class StartupConfigurationTests : IDisposable
     [InlineData("   ")]
     public void The_app_fails_at_startup_when_the_default_connection_string_is_blank(string value)
     {
-        using var factory = CreateFactory(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = value });
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["ConnectionStrings:Default"] = value);
 
-        var failure = Record.Exception(() => factory.CreateClient());
-
-        Assert.NotNull(failure);
-        Assert.Contains("ConnectionStrings:Default", failure.ToString(), StringComparison.Ordinal);
+        AssertStartupFailsMentioning(factory, "ConnectionStrings:Default");
     }
 
-    // Positive control: proves the failures above are about the missing setting and nothing else.
     [Fact]
-    public void The_app_starts_when_the_default_connection_string_is_present()
+    public void The_app_fails_at_startup_when_the_data_protection_certificate_is_missing()
     {
-        using var factory = CreateFactory(new Dictionary<string, string?>
-        {
-            // Never connected to: the database is only touched when a request needs it.
-            ["ConnectionStrings:Default"] = "Host=localhost;Database=unused;Username=unused;Password=unused",
-        });
+        using var factory = ApiFactory.WithoutDatabase(settings => settings.Remove("DataProtection:CertificateBase64"));
 
-        using var client = factory.CreateClient();
+        AssertStartupFailsMentioning(factory, "DataProtection:CertificateBase64");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void The_app_fails_at_startup_when_the_data_protection_certificate_is_blank(string value)
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["DataProtection:CertificateBase64"] = value);
+
+        AssertStartupFailsMentioning(factory, "DataProtection:CertificateBase64");
+    }
+
+    [Fact]
+    public void The_app_fails_at_startup_when_the_certificate_is_not_a_certificate_and_never_echoes_it()
+    {
+        const string garbage = "bm90LWEtY2VydGlmaWNhdGUtYXQtYWxs";
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["DataProtection:CertificateBase64"] = garbage);
+
+        var failure = AssertStartupFailsMentioning(factory, "DataProtection:CertificateBase64");
+
+        Assert.DoesNotContain(garbage, failure.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_app_fails_at_startup_when_the_certificate_password_is_wrong_and_never_echoes_it()
+    {
+        const string wrongPassword = "definitely-the-wrong-password";
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["DataProtection:CertificatePassword"] = wrongPassword);
+
+        var failure = AssertStartupFailsMentioning(factory, "DataProtection:CertificatePassword");
+
+        Assert.DoesNotContain(wrongPassword, failure.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_app_fails_at_startup_when_the_turnstile_secret_is_missing()
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings.Remove("Turnstile:SecretKey"));
+
+        AssertStartupFailsMentioning(factory, "Turnstile:SecretKey");
+    }
+
+    // Positive control: proves the failures above are about the missing settings and nothing else.
+    [Fact]
+    public void The_app_starts_when_everything_required_is_present()
+    {
+        using var factory = ApiFactory.WithoutDatabase();
+
+        using var client = factory.CreateApiClient().Http;
 
         Assert.NotNull(client);
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(Dictionary<string, string?>? settings) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-        {
-            // Set explicitly: the metadata WebApplicationFactory generates for the content root breaks
-            // when the project path contains an apostrophe (as a user folder name can).
-            builder.UseContentRoot(Path.Combine(SolutionGraph.SolutionRoot, "CaseRegister.Api"));
-            builder.UseEnvironment("Testing");
-            if (settings is not null)
-            {
-                builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(settings));
-            }
-        });
+    private static Exception AssertStartupFailsMentioning(ApiFactory factory, string setting)
+    {
+        // The Testing environment does not load user-secrets, so nothing else supplies a value.
+        var failure = Record.Exception(() => factory.CreateApiClient());
+
+        Assert.NotNull(failure);
+        Assert.Contains(setting, failure.ToString(), StringComparison.Ordinal);
+
+        return failure;
+    }
 }

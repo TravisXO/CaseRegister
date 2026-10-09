@@ -12,7 +12,10 @@ public sealed class PostgresFixture : IAsyncLifetime
     public const string AppRole = "case_register_app";
     public const string AppRolePassword = "test-only-password";
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine").Build();
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine")
+        // Every test gets its own database and app instance. Plenty of headroom keeps pool leftovers from ever mattering.
+        .WithCommand("-c", "max_connections=500")
+        .Build();
     private readonly Lazy<Task> _appRole;
 
     public PostgresFixture()
@@ -37,7 +40,15 @@ public sealed class PostgresFixture : IAsyncLifetime
         var name = $"test_{Guid.NewGuid():N}";
         await ExecuteAsync(_container.GetConnectionString(), $"CREATE DATABASE {name}");
 
-        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = name }.ConnectionString;
+        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = name,
+
+            // Small and short-lived pools: there is one per test database, and they should not linger.
+            MaxPoolSize = 8,
+            ConnectionPruningInterval = 2,
+            ConnectionIdleLifetime = 4,
+        }.ConnectionString;
     }
 
     /// <summary>Creates the application login role once per server, the way the runbook describes (plain SQL).</summary>
@@ -46,6 +57,19 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// <summary>The same database, connected as the least-privilege application role.</summary>
     public static string AsAppRole(string connectionString) =>
         new NpgsqlConnectionStringBuilder(connectionString) { Username = AppRole, Password = AppRolePassword }.ConnectionString;
+
+    /// <summary>Closes every idle connection held for this connection string.</summary>
+    public static void ReleaseConnections(string? connectionString)
+    {
+        // Some tests deliberately start the app with a missing or broken connection string.
+        if (string.IsNullOrWhiteSpace(connectionString) || connectionString.StartsWith("Host=localhost;Port=1;", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        using var connection = new NpgsqlConnection(connectionString);
+        NpgsqlConnection.ClearPool(connection);
+    }
 
     public static async Task ExecuteAsync(string connectionString, string sql)
     {
