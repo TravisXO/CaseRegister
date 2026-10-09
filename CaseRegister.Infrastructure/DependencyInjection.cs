@@ -1,3 +1,4 @@
+using CaseRegister.Application.Accounts;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
 using CaseRegister.Infrastructure.Auditing;
@@ -32,6 +33,7 @@ public static class DependencyInjection
         services.AddSingleton<EntityTimestampInterceptor>();
 
         AddDatabase(services);
+        AddAgentRegistration(services);
         AddAccountSecurity(services);
         AddKeyProtection(services, configuration);
         AddExternalClients(services);
@@ -65,6 +67,18 @@ public static class DependencyInjection
             AppDbContextOptions.Configure(builder, connectionString);
             builder.AddInterceptors(provider.GetRequiredService<EntityTimestampInterceptor>());
         });
+    }
+
+    private static void AddAgentRegistration(IServiceCollection services)
+    {
+        // The display prefix has no default in code: it comes from configuration and a bad value stops startup.
+        services.AddOptions<AgentRegistrationOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+                options.DisplayPrefix = configuration[AgentRegistrationOptions.DisplayPrefixKey] ?? string.Empty)
+            .Validate(
+                options => AgentRegistrationOptions.IsValidPrefix(options.DisplayPrefix),
+                $"{AgentRegistrationOptions.DisplayPrefixKey} must be 1 to {AgentRegistrationOptions.MaxPrefixLength} letters.")
+            .ValidateOnStart();
     }
 
     private static void AddAccountSecurity(IServiceCollection services)

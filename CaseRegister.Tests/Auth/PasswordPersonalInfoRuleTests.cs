@@ -5,13 +5,14 @@ namespace CaseRegister.Tests.Auth;
 
 public class PasswordPersonalInfoRuleTests
 {
+    private const string Prefix = "AGT";
     private const string Email = "jane.mwansa@example.com";
     private const string Name = "Jane Mwansa Banda";
-    private static readonly ZieaNumber _number = ZieaNumber.FromValue(884);
-    private static readonly ZieaNumber _longNumber = ZieaNumber.FromValue(123456);
+    private static readonly AgentRegistrationNumber _number = AgentRegistrationNumber.FromValue(884);
+    private static readonly AgentRegistrationNumber _longNumber = AgentRegistrationNumber.FromValue(123456);
 
-    private static bool Rejected(string password, ZieaNumber? number = null) =>
-        PasswordPersonalInfoRule.ContainsPersonalInfo(password, Email, Name, number ?? _number);
+    private static bool Rejected(string password, AgentRegistrationNumber? number = null) =>
+        PasswordPersonalInfoRule.ContainsPersonalInfo(password, Email, Name, number ?? _number, Prefix);
 
     [Theory]
     [InlineData("jane.mwansa@example.com")]
@@ -35,24 +36,24 @@ public class PasswordPersonalInfoRuleTests
     }
 
     [Theory]
-    [InlineData("ZIEA 884 forever")]
-    [InlineData("ziea884isme!!")]
-    [InlineData("my ZIEA-884 number")]
-    [InlineData("ZiEa 884 ZiEa")]
-    public void The_membership_number_in_any_accepted_form_is_rejected(string password)
+    [InlineData("AGT 884 forever")]
+    [InlineData("agt884isme!!")]
+    [InlineData("my AGT-884 number")]
+    [InlineData("AgT 884 AgT")]
+    public void The_registration_number_in_any_accepted_form_is_rejected(string password)
     {
         Assert.True(Rejected(password));
     }
 
     [Fact]
-    public void A_short_membership_number_on_its_own_is_not_a_match()
+    public void A_short_registration_number_on_its_own_is_not_a_match()
     {
         // "884" appears in countless unrelated passwords. Only the prefixed forms count for short numbers.
         Assert.False(Rejected("correct horse 884 staple"));
     }
 
     [Fact]
-    public void A_long_membership_number_on_its_own_is_a_match()
+    public void A_long_registration_number_on_its_own_is_a_match()
     {
         Assert.True(Rejected("correct 123456 staple", _longNumber));
         Assert.False(Rejected("correct 654321 staple", _longNumber));
@@ -71,15 +72,15 @@ public class PasswordPersonalInfoRuleTests
     [Fact]
     public void Missing_details_are_skipped_rather_than_matching_everything()
     {
-        Assert.False(PasswordPersonalInfoRule.ContainsPersonalInfo("correct horse battery", string.Empty, string.Empty, null));
-        Assert.False(PasswordPersonalInfoRule.ContainsPersonalInfo("correct horse battery", "  ", "  ", null));
+        Assert.False(PasswordPersonalInfoRule.ContainsPersonalInfo("correct horse battery", string.Empty, string.Empty, null, Prefix));
+        Assert.False(PasswordPersonalInfoRule.ContainsPersonalInfo("correct horse battery", "  ", "  ", null, Prefix));
     }
 
     [Fact]
     public void A_short_local_part_is_not_treated_as_a_secret()
     {
         // "jo" would match far too many passwords, but the whole address still counts.
-        Assert.False(PasswordPersonalInfoRule.ContainsPersonalInfo("a major joke here", "jo@example.com", "X", null));
-        Assert.True(PasswordPersonalInfoRule.ContainsPersonalInfo("jo@example.com!!", "jo@example.com", "X", null));
+        Assert.False(PasswordPersonalInfoRule.ContainsPersonalInfo("a major joke here", "jo@example.com", "X", null, Prefix));
+        Assert.True(PasswordPersonalInfoRule.ContainsPersonalInfo("jo@example.com!!", "jo@example.com", "X", null, Prefix));
     }
 }

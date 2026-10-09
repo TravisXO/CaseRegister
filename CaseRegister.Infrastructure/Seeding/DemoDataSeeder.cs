@@ -50,7 +50,7 @@ public sealed partial class DemoDataSeeder(
             }
 
             var result = await users.CreateAsync(
-                ApplicationUser.Create(email, fullName, ZieaNumber.FromValue(number), status),
+                ApplicationUser.Create(email, fullName, AgentRegistrationNumber.FromValue(number), status),
                 password);
 
             if (!result.Succeeded)

@@ -16,12 +16,12 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
 
         builder.Property(user => user.FullName).HasMaxLength(200).IsRequired();
 
-        // Stored as the integer, shown as "ZIEA 884". One account per membership number.
-        builder.Property(user => user.ZieaNumber)
-            .HasConversion(number => number.Value, value => ZieaNumber.FromValue(value))
-            .HasColumnName("ziea_number")
+        // Stored as the integer, shown with the configured prefix. One account per membership number.
+        builder.Property(user => user.AgentRegistrationNumber)
+            .HasConversion(number => number.Value, value => AgentRegistrationNumber.FromValue(value))
+            .HasColumnName("agent_registration_number")
             .IsRequired();
-        builder.HasIndex(user => user.ZieaNumber).IsUnique().HasDatabaseName("ux_users_ziea_number");
+        builder.HasIndex(user => user.AgentRegistrationNumber).IsUnique().HasDatabaseName("ux_users_agent_registration_number");
 
         // Readable in the database, and robust if the enum is ever reordered.
         builder.Property(user => user.AccountStatus).HasConversion<string>().HasMaxLength(20).IsRequired();

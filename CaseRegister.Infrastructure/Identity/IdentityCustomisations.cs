@@ -1,7 +1,9 @@
+using CaseRegister.Application.Accounts;
 using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CaseRegister.Infrastructure.Identity;
 
@@ -37,9 +39,9 @@ internal sealed class AccountUserValidator : IUserValidator<ApplicationUser>
             errors.Add(new IdentityError { Code = "FullNameRequired", Description = "A full name is required." });
         }
 
-        if (user.ZieaNumber is null)
+        if (user.AgentRegistrationNumber is null)
         {
-            errors.Add(new IdentityError { Code = "ZieaNumberRequired", Description = "A membership number is required." });
+            errors.Add(new IdentityError { Code = "AgentRegistrationNumberRequired", Description = "A registration number is required." });
         }
 
         return Task.FromResult(errors.Count == 0 ? IdentityResult.Success : IdentityResult.Failed([.. errors]));
@@ -60,19 +62,24 @@ internal sealed class PasswordLengthLimitValidator : IPasswordValidator<Applicat
                 : IdentityResult.Success);
 }
 
-internal sealed class PersonalInfoPasswordValidator : IPasswordValidator<ApplicationUser>
+internal sealed class PersonalInfoPasswordValidator(IOptions<AgentRegistrationOptions> registration) : IPasswordValidator<ApplicationUser>
 {
     public Task<IdentityResult> ValidateAsync(UserManager<ApplicationUser> manager, ApplicationUser user, string? password)
     {
         var rejected = password is not null
-            && PasswordPersonalInfoRule.ContainsPersonalInfo(password, user.Email ?? string.Empty, user.FullName, user.ZieaNumber);
+            && PasswordPersonalInfoRule.ContainsPersonalInfo(
+                password,
+                user.Email ?? string.Empty,
+                user.FullName,
+                user.AgentRegistrationNumber,
+                registration.Value.DisplayPrefix);
 
         return Task.FromResult(
             rejected
                 ? IdentityResult.Failed(new IdentityError
                 {
                     Code = "PasswordContainsPersonalInfo",
-                    Description = "The password must not contain your email address, name or membership number.",
+                    Description = "The password must not contain your email address, name or registration number.",
                 })
                 : IdentityResult.Success);
     }

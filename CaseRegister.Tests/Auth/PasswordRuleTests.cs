@@ -24,7 +24,7 @@ public class PasswordRuleTests(PostgresFixture postgres)
     {
         using var scope = factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var user = ApplicationUser.Create(email, fullName, ZieaNumber.FromValue(number ?? Interlocked.Increment(ref _nextNumber)));
+        var user = ApplicationUser.Create(email, fullName, AgentRegistrationNumber.FromValue(number ?? Interlocked.Increment(ref _nextNumber)));
 
         return await users.CreateAsync(user, password);
     }
@@ -96,10 +96,10 @@ public class PasswordRuleTests(PostgresFixture postgres)
     [InlineData("I am JANE.BANDA for sure")]
     [InlineData("bandaFamily2024!!")]
     [InlineData("my-name-is-Jane-ok")]
-    [InlineData("ZIEA 884 forever and ever")]
-    [InlineData("ziea884isMyNumber")]
-    [InlineData("a ZIEA-884 b c d e f")]
-    public async Task A_password_containing_the_email_name_or_membership_number_is_refused(string password)
+    [InlineData("AGT 884 forever and ever")]
+    [InlineData("agt884isMyNumber")]
+    [InlineData("a AGT-884 b c d e f")]
+    public async Task A_password_containing_the_email_name_or_registration_number_is_refused(string password)
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
 

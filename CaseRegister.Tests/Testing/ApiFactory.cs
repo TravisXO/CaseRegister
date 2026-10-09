@@ -39,6 +39,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
             // Cloudflare's published test secret: it accepts every token. The verifier itself is replaced below.
             ["Turnstile:SecretKey"] = TurnstileTestSecret,
+
+            // A neutral test prefix, so no test depends on the real default.
+            ["AgentRegistration:DisplayPrefix"] = "AGT",
         };
         adjustSettings?.Invoke(_settings);
     }
@@ -109,14 +112,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         AccountStatus status = AccountStatus.Approved,
         string password = Password,
         string fullName = "Test Person",
-        int zieaNumber = 0)
+        int agentRegistrationNumber = 0)
     {
         using var scope = Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-        // Spread numbers out so tests do not collide on the unique membership number.
-        var number = zieaNumber != 0 ? zieaNumber : Random.Shared.Next(1000, ZieaNumber.MaxValue);
-        var user = ApplicationUser.Create(email, fullName, ZieaNumber.FromValue(number), status);
+        // Spread numbers out so tests do not collide on the unique registration number.
+        var number = agentRegistrationNumber != 0 ? agentRegistrationNumber : Random.Shared.Next(1000, AgentRegistrationNumber.MaxValue);
+        var user = ApplicationUser.Create(email, fullName, AgentRegistrationNumber.FromValue(number), status);
 
         var result = await users.CreateAsync(user, password);
         Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(error => error.Code)));

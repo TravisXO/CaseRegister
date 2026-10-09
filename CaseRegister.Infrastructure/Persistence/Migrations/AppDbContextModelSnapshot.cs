@@ -39,6 +39,10 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("account_status");
 
+                    b.Property<int>("AgentRegistrationNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_registration_number");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text")
@@ -102,12 +106,12 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("user_name");
 
-                    b.Property<int>("ZieaNumber")
-                        .HasColumnType("integer")
-                        .HasColumnName("ziea_number");
-
                     b.HasKey("Id")
                         .HasName("pk_users");
+
+                    b.HasIndex("AgentRegistrationNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_agent_registration_number");
 
                     b.HasIndex("NormalizedEmail")
                         .IsUnique()
@@ -116,10 +120,6 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.HasIndex("NormalizedUserName")
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
-
-                    b.HasIndex("ZieaNumber")
-                        .IsUnique()
-                        .HasDatabaseName("ux_users_ziea_number");
 
                     b.ToTable("users", (string)null);
                 });
