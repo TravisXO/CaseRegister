@@ -56,19 +56,45 @@ BEGIN
 END
 $$;
 
--- Nothing is hard-deleted. Accounts, authenticators, recovery codes and lockout history are retired or
+-- Nothing is hard-deleted. Accounts, agencies, certificates, authenticators, recovery codes and lockout history are retired or
 -- marked, never removed, so the application role may not delete from them. (Sessions are the exception:
 -- ending one means deleting its row, on purpose.)
 DO $$
 DECLARE
     protected_table text;
 BEGIN
-    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events']
+    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events', 'agencies', 'practising_certificates']
     LOOP
         IF to_regclass(format('public.%I', protected_table)) IS NOT NULL THEN
             EXECUTE format('REVOKE DELETE, TRUNCATE ON TABLE public.%I FROM case_register_app', protected_table);
         END IF;
     END LOOP;
+END
+$$;
+
+-- The roles are fixed by a migration. The running application can read them and assign them to users
+-- (that is the user_roles table), but it cannot create, rename or remove a role.
+DO $$
+DECLARE
+    fixed_table text;
+BEGIN
+    FOREACH fixed_table IN ARRAY ARRAY['roles', 'role_claims']
+    LOOP
+        IF to_regclass(format('public.%I', fixed_table)) IS NOT NULL THEN
+            EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.%I FROM case_register_app', fixed_table);
+        END IF;
+    END LOOP;
+END
+$$;
+
+-- A practising certificate is history. Once added, its number and dates never change: the only thing
+-- the application may update is the verification (and the row's own updated_at).
+DO $$
+BEGIN
+    IF to_regclass('public.practising_certificates') IS NOT NULL THEN
+        REVOKE UPDATE ON TABLE public.practising_certificates FROM case_register_app;
+        GRANT UPDATE (verified_at, verified_by_user_id, updated_at) ON TABLE public.practising_certificates TO case_register_app;
+    END IF;
 END
 $$;
 

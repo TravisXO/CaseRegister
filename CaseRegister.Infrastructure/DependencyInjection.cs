@@ -115,6 +115,8 @@ public static class DependencyInjection
                 options.SignIn.RequireConfirmedEmail = false;
                 options.SignIn.RequireConfirmedPhoneNumber = false;
             })
+            .AddRoles<IdentityRole<Guid>>()
+            .AddClaimsPrincipalFactory<AppClaimsPrincipalFactory>()
             .AddEntityFrameworkStores<AppDbContext>()
             .AddSignInManager<AppSignInManager>()
             .AddDefaultTokenProviders()
@@ -142,6 +144,11 @@ public static class DependencyInjection
         services.AddScoped<CredentialChecker>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<ISessionService, SessionService>();
+
+        // Roles, certificates and the member profile.
+        services.AddScoped<IRoleAssignmentService, RoleAssignmentService>();
+        services.AddScoped<IPractisingCertificateService, PractisingCertificateService>();
+        services.AddScoped<IMemberProfileService, MemberProfileService>();
         services.AddSingleton<AuthenticatorKeyProtector>();
         services.AddOptions<TwoFactorOptions>();
         services.AddSingleton<TwoFactorAttemptLimiter>();

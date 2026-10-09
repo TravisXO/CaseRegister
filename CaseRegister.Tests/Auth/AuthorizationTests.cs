@@ -147,6 +147,9 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("DELETE", "api/auth/sessions/{id:guid}", "two-factor"),
             new("POST", "api/auth/sign-in", "anonymous"),
             new("POST", "api/auth/sign-out", "SignedIn"),
+            new("GET", "api/me", "two-factor"),
+            new("GET", "api/me/practising-certificates", "two-factor"),
+            new("POST", "api/me/practising-certificates", "two-factor"),
         }.OrderBy(rule => rule.Route).ThenBy(rule => rule.Method).ToList();
 
         Assert.Equal(expected, endpoints);

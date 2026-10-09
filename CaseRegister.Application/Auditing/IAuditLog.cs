@@ -13,6 +13,9 @@ public enum AuditAction
     RecoveryCodeUsed,
     RecoveryCodesRegenerated,
     SessionRevoked,
+    RolesChanged,
+    PractisingCertificateAdded,
+    PractisingCertificateVerified,
 }
 
 /// <param name="Action">What happened.</param>

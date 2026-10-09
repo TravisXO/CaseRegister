@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CaseRegister.Tests.Testing;
@@ -49,4 +50,10 @@ public sealed class ProbeController : ControllerBase
     [HttpGet("forbidden")]
     [Authorize(Policy = NeverPolicy)]
     public IActionResult Forbidden() => Ok();
+
+    /// <summary>Evaluates a named policy against the signed-in user's session: 200 if it passes, 403 if not.</summary>
+    [HttpGet("can/{policy}")]
+    [Authorize(Policy = "SignedIn")]
+    public async Task<IActionResult> Can(string policy, [FromServices] IAuthorizationService authorization) =>
+        (await authorization.AuthorizeAsync(User, policy)).Succeeded ? Ok() : StatusCode(StatusCodes.Status403Forbidden);
 }

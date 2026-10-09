@@ -1,7 +1,10 @@
 using CaseRegister.Api.Security;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using CaseRegister.Application.Accounts;
 using CaseRegister.Application.Auth;
+using CaseRegister.Domain.Agencies;
+using CaseRegister.Domain.Certificates;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Infrastructure.Identity;
 using CaseRegister.Infrastructure.Persistence;
@@ -124,14 +127,19 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         string password = Password,
         string fullName = "Test Person",
         int membershipNumber = 0,
-        bool twoFactor = true)
+        bool twoFactor = true,
+        Guid? agencyId = null,
+        MembershipClass membershipClass = MembershipClass.Full,
+        bool staff = false)
     {
         using var scope = Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
         // Spread numbers out so tests do not collide on the unique membership number.
         var number = membershipNumber != 0 ? membershipNumber : Random.Shared.Next(1000, MembershipNumber.MaxValue);
-        var user = ApplicationUser.Create(email, fullName, MembershipNumber.FromValue(number), status);
+        var user = staff
+            ? ApplicationUser.CreateStaff(email, fullName, status)
+            : ApplicationUser.Create(email, fullName, MembershipNumber.FromValue(number), status, membershipClass, agencyId);
 
         var result = await users.CreateAsync(user, password);
         Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(error => error.Code)));
@@ -140,6 +148,103 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             await EnrolTwoFactorAsync(user);
         }
+
+        return user;
+    }
+
+
+    // --- Agencies, roles and certificates -------------------------------------------------------
+
+    private static int _certificateSequence = 1000;
+
+    public async Task<Agency> CreateAgencyAsync(string name = "Test Agency")
+    {
+        var agency = Agency.Create(name);
+
+        await WithDbAsync(async db =>
+        {
+            db.Agencies.Add(agency);
+            await db.SaveChangesAsync();
+
+            return 0;
+        });
+
+        return agency;
+    }
+
+    /// <summary>Changes roles through the real service (so every rule applies) and expects it to be accepted.</summary>
+    public async Task AssignRolesAsync(ApplicationUser user, params Role[] roles)
+    {
+        var result = await TryChangeRolesAsync(new RoleChange(user.Id, roles, []));
+
+        Assert.True(result.Succeeded, string.Join(", ", result.Violations.Select(violation => violation.Code)));
+    }
+
+    public async Task<RoleChangeResult> TryChangeRolesAsync(RoleChange change)
+    {
+        using var scope = Services.CreateScope();
+
+        return await scope.ServiceProvider.GetRequiredService<IRoleAssignmentService>().ChangeRolesAsync(change);
+    }
+
+    public async Task<IReadOnlyList<Role>> RolesOfAsync(ApplicationUser user)
+    {
+        using var scope = Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        return [.. (await users.GetRolesAsync((await users.FindByIdAsync(user.Id.ToString()))!)).Select(Enum.Parse<Role>).Order()];
+    }
+
+    /// <summary>Today's date as the certificate checks see it (Zambian time).</summary>
+    public DateOnly Today => MembershipCalendar.Today(Clock);
+
+    /// <summary>Adds a practising certificate for a calendar year straight to the database. Verified unless told otherwise.</summary>
+    public async Task<PractisingCertificate> AddCertificateAsync(ApplicationUser user, int? year = null, bool verified = true)
+    {
+        var certificateYear = year ?? Today.Year;
+        var number = CertificateNumber.Parse($"{Interlocked.Increment(ref _certificateSequence)}/{certificateYear}");
+        var certificate = PractisingCertificate.Create(user.Id, number, new DateOnly(certificateYear, 1, 1), new DateOnly(certificateYear, 12, 31));
+
+        if (verified)
+        {
+            certificate.Verify(Guid.NewGuid(), Clock.GetUtcNow());
+        }
+
+        await WithDbAsync(async db =>
+        {
+            db.PractisingCertificates.Add(certificate);
+            await db.SaveChangesAsync();
+
+            return 0;
+        });
+
+        return certificate;
+    }
+
+    /// <summary>A member of an agency with the given roles. By default their practising certificate is current and verified.</summary>
+    public async Task<ApplicationUser> CreateMemberAsync(
+        string email,
+        Agency agency,
+        Role[] roles,
+        bool currentCertificate = true,
+        MembershipClass membershipClass = MembershipClass.Full)
+    {
+        var user = await CreateUserAsync(email, agencyId: agency.Id, membershipClass: membershipClass);
+        await AssignRolesAsync(user, roles);
+
+        if (currentCertificate)
+        {
+            await AddCertificateAsync(user);
+        }
+
+        return user;
+    }
+
+    /// <summary>A member of the association's staff: no membership number, no agency.</summary>
+    public async Task<ApplicationUser> CreateStaffAsync(string email, Role role)
+    {
+        var user = await CreateUserAsync(email, staff: true);
+        await AssignRolesAsync(user, role);
 
         return user;
     }

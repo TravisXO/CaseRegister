@@ -125,7 +125,7 @@ public class AccountTests(PostgresFixture postgres)
         var stored = await factory.GetUserAsync("jane@example.test");
 
         Assert.Equal(884, raw);
-        Assert.Equal("AGT 884", stored.MembershipNumber.Format("AGT"));
+        Assert.Equal("AGT 884", stored.MembershipNumber!.Format("AGT"));
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public class AccountTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task An_account_needs_a_name_and_a_membership_number()
+    public async Task An_account_needs_a_name()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         using var scope = factory.Services.CreateScope();
@@ -154,7 +154,26 @@ public class AccountTests(PostgresFixture postgres)
 
         Assert.False(result.Succeeded);
         Assert.Contains(result.Errors, error => error.Code == "FullNameRequired");
-        Assert.Contains(result.Errors, error => error.Code == "MembershipNumberRequired");
+    }
+
+    [Fact]
+    public async Task A_membership_number_and_a_class_go_together_both_or_neither()
+    {
+        await using var factory = await ApiFactory.CreateAsync(postgres);
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var numberOnly = ApplicationUser.CreateStaff("number.only@example.test", "Number Only");
+        numberOnly.MembershipNumber = MembershipNumber.FromValue(5);
+        var classOnly = ApplicationUser.CreateStaff("class.only@example.test", "Class Only");
+        classOnly.MembershipClass = MembershipClass.Full;
+        var neither = ApplicationUser.CreateStaff("staff@example.test", "A Staff Member");
+        var both = ApplicationUser.Create("member@example.test", "A Member", MembershipNumber.FromValue(6), membershipClass: MembershipClass.Associate);
+
+        Assert.Contains((await users.CreateAsync(numberOnly, ApiFactory.Password)).Errors, e => e.Code == "MembershipDetailsIncomplete");
+        Assert.Contains((await users.CreateAsync(classOnly, ApiFactory.Password)).Errors, e => e.Code == "MembershipDetailsIncomplete");
+        Assert.True((await users.CreateAsync(neither, ApiFactory.Password)).Succeeded);
+        Assert.True((await users.CreateAsync(both, ApiFactory.Password)).Succeeded);
     }
 
     [Fact]

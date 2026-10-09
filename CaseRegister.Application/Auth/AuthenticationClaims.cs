@@ -15,6 +15,9 @@ public static class AuthenticationClaims
     /// <summary>The public id of the session (not the cookie value), so a member can tell which one is theirs.</summary>
     public const string SessionId = "cr:sid";
 
+    /// <summary>The user's one agency, if they have one. Rebuilt from the database whenever the claims are.</summary>
+    public const string AgencyId = "cr:agency";
+
     /// <summary>
     /// A property of the sign-in ticket (not a claim): when the member really signed in. It survives
     /// renewals, so the 8-hour limit counts from the real sign-in however active the session is.

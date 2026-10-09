@@ -1,4 +1,6 @@
 using CaseRegister.Domain.Accounts;
+using CaseRegister.Domain.Agencies;
+using CaseRegister.Domain.Certificates;
 using CaseRegister.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -16,12 +18,19 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
 
         builder.Property(user => user.FullName).HasMaxLength(200).IsRequired();
 
-        // Stored as the integer, shown with the configured prefix. One account per membership number.
+        // Members only: association staff have no membership number. Stored as the integer, shown with the
+        // configured prefix. One account per membership number (several NULLs are fine for the staff).
         builder.Property(user => user.MembershipNumber)
-            .HasConversion(number => number.Value, value => MembershipNumber.FromValue(value))
-            .HasColumnName("membership_number")
-            .IsRequired();
+            .HasConversion(number => number!.Value, value => MembershipNumber.FromValue(value))
+            .HasColumnName("membership_number");
         builder.HasIndex(user => user.MembershipNumber).IsUnique().HasDatabaseName("ux_users_membership_number");
+
+        builder.Property(user => user.MembershipClass).HasConversion<string>().HasMaxLength(20);
+
+        // Every agent belongs to exactly one agency (one column); staff have none. An agency with people
+        // in it cannot be removed from under them.
+        builder.HasOne<Agency>().WithMany().HasForeignKey(user => user.AgencyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(user => user.AgencyId);
 
         // Readable in the database, and robust if the enum is ever reordered.
         builder.Property(user => user.AccountStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
@@ -103,5 +112,43 @@ internal sealed class LockoutEventConfiguration : IEntityTypeConfiguration<Locko
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(e => new { e.UserId, e.CreatedAt });
+    }
+}
+
+internal sealed class AgencyConfiguration : IEntityTypeConfiguration<Agency>
+{
+    public void Configure(EntityTypeBuilder<Agency> builder)
+    {
+        builder.ToTable("agencies");
+
+        builder.Property(agency => agency.Name).HasMaxLength(Agency.MaxNameLength).IsRequired();
+        builder.Property(agency => agency.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+    }
+}
+
+internal sealed class PractisingCertificateConfiguration : IEntityTypeConfiguration<PractisingCertificate>
+{
+    public void Configure(EntityTypeBuilder<PractisingCertificate> builder)
+    {
+        builder.ToTable("practising_certificates");
+
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(certificate => certificate.UserId).OnDelete(DeleteBehavior.Restrict);
+
+        // Stored as its text form, "9611/2026". Certificate numbers are issued once, so a number can only appear once.
+        builder.Property(certificate => certificate.Number)
+            .HasConversion(number => number.ToString(), text => CertificateNumber.Parse(text))
+            .HasColumnName("certificate_number")
+            .HasMaxLength(11)
+            .IsRequired();
+        builder.HasIndex(certificate => certificate.Number).IsUnique().HasDatabaseName("ux_practising_certificates_number");
+
+        // Plain dates: a certificate runs from 1 January to 31 December.
+        builder.Property(certificate => certificate.ValidFrom).HasColumnType("date");
+        builder.Property(certificate => certificate.ValidTo).HasColumnType("date");
+
+        // A member's history, newest first.
+        builder.HasIndex(certificate => new { certificate.UserId, certificate.ValidFrom });
+
+        builder.Ignore(certificate => certificate.IsVerified);
     }
 }

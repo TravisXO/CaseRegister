@@ -39,9 +39,19 @@ internal sealed class AccountUserValidator : IUserValidator<ApplicationUser>
             errors.Add(new IdentityError { Code = "FullNameRequired", Description = "A full name is required." });
         }
 
-        if (user.MembershipNumber is null)
+        // Members have a membership number and a class; association staff have neither. Never half of it.
+        if (user.MembershipNumber is null != user.MembershipClass is null)
         {
-            errors.Add(new IdentityError { Code = "MembershipNumberRequired", Description = "A membership number is required." });
+            errors.Add(new IdentityError
+            {
+                Code = "MembershipDetailsIncomplete",
+                Description = "A membership number and a membership class go together: both, or neither for association staff.",
+            });
+        }
+
+        if (user.MembershipClass is { } membershipClass && !Enum.IsDefined(membershipClass))
+        {
+            errors.Add(new IdentityError { Code = "MembershipClassInvalid", Description = "That is not a membership class." });
         }
 
         return Task.FromResult(errors.Count == 0 ? IdentityResult.Success : IdentityResult.Failed([.. errors]));

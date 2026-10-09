@@ -69,6 +69,7 @@ public static class WebSecurityExtensions
             .Configure<TimeProvider>((options, timeProvider) => options.TimeProvider = timeProvider);
 
         services.AddAuthorization(AuthorizationPolicies.Configure);
+        services.AddAuthorizationHandlers();
     }
 
     private static void AddAntiforgery(IServiceCollection services)
