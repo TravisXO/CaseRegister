@@ -11,6 +11,9 @@ internal static class SolutionGraph
 {
     private static readonly string _solutionRoot = FindSolutionRoot();
 
+    /// <summary>The folder that holds the .slnx file.</summary>
+    public static string SolutionRoot => _solutionRoot;
+
     /// <summary>Every project the given project depends on, directly or transitively.</summary>
     public static IReadOnlySet<string> ProjectReferences(string project) => Libraries(project, "project");
 

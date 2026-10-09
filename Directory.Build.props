@@ -12,6 +12,9 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- One user-secrets store shared by the API, the EF Core design-time factory and the tests. -->
+    <UserSecretsId>a9172480-1a95-42f2-8bbf-b76d2e8c977e</UserSecretsId>
   </PropertyGroup>
 
 </Project>

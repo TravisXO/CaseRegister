@@ -93,6 +93,11 @@ dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 dotnet_naming_style.underscore_camel_case.required_prefix = _
 dotnet_naming_style.underscore_camel_case.capitalization = camel_case
 
+# EF Core migrations are generated: exempt them from style and analyser rules
+[**/Persistence/Migrations/*.cs]
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none
+
 # Test projects: underscores in test method names are fine
 [CaseRegister.Tests/**.cs]
 dotnet_diagnostic.CA1707.severity = none
