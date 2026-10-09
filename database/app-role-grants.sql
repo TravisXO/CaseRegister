@@ -56,6 +56,22 @@ BEGIN
 END
 $$;
 
+-- Nothing is hard-deleted. Accounts, authenticators, recovery codes and lockout history are retired or
+-- marked, never removed, so the application role may not delete from them. (Sessions are the exception:
+-- ending one means deleting its row, on purpose.)
+DO $$
+DECLARE
+    protected_table text;
+BEGIN
+    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events']
+    LOOP
+        IF to_regclass(format('public.%I', protected_table)) IS NOT NULL THEN
+            EXECUTE format('REVOKE DELETE, TRUNCATE ON TABLE public.%I FROM case_register_app', protected_table);
+        END IF;
+    END LOOP;
+END
+$$;
+
 -- The runtime role has no business with the migration history: only the owner applies migrations.
 DO $$
 BEGIN

@@ -89,6 +89,35 @@ public partial class AppRoleGrantsTests(PostgresFixture postgres)
         Assert.Equal(1, await PostgresFixture.ScalarAsync<long>(app, "SELECT count(*) FROM audit_log"));
     }
 
+    [Theory]
+    [InlineData("users")]
+    [InlineData("user_authenticators")]
+    [InlineData("recovery_codes")]
+    [InlineData("lockout_events")]
+    public async Task Nothing_that_must_be_kept_can_be_deleted_by_the_app_role(string table)
+    {
+        var owner = await MigratedDatabaseWithGrantsAsync();
+        var app = PostgresFixture.AsAppRole(owner);
+
+        var delete = await Assert.ThrowsAsync<PostgresException>(() => PostgresFixture.ExecuteAsync(app, $"DELETE FROM {table} WHERE false"));
+        var truncate = await Assert.ThrowsAsync<PostgresException>(() => PostgresFixture.ExecuteAsync(app, $"TRUNCATE {table} CASCADE"));
+
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, delete.SqlState);
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, truncate.SqlState);
+
+        // Reading and writing is still allowed: the application needs that.
+        await PostgresFixture.ExecuteAsync(app, $"SELECT count(*) FROM {table}");
+    }
+
+    [Fact]
+    public async Task The_app_role_can_delete_sessions_because_ending_one_removes_its_row()
+    {
+        var owner = await MigratedDatabaseWithGrantsAsync();
+        var app = PostgresFixture.AsAppRole(owner);
+
+        await PostgresFixture.ExecuteAsync(app, "DELETE FROM user_sessions WHERE false");
+    }
+
     [Fact]
     public async Task The_app_role_cannot_touch_the_migration_history()
     {

@@ -19,11 +19,26 @@ public sealed class SignInCommandValidator : AbstractValidator<SignInCommand>
     }
 }
 
+public static class TwoFactorCodeRules
+{
+    // A recovery code is 16 characters with hyphens or spaces; this allows for generous formatting and no more.
+    public const int MaxLength = 32;
+}
+
+public sealed class TwoFactorCodeCommandValidator : AbstractValidator<TwoFactorCodeCommand>
+{
+    public TwoFactorCodeCommandValidator()
+    {
+        RuleFor(command => command.Code).NotEmpty().MaximumLength(TwoFactorCodeRules.MaxLength);
+    }
+}
+
 public sealed class ChangePasswordCommandValidator : AbstractValidator<ChangePasswordCommand>
 {
     public ChangePasswordCommandValidator()
     {
         RuleFor(command => command.CurrentPassword).NotEmpty().MaximumLength(PasswordPolicy.MaximumLength);
         RuleFor(command => command.NewPassword).NotEmpty().MaximumLength(PasswordPolicy.MaximumLength);
+        RuleFor(command => command.TwoFactorCode).NotEmpty().MaximumLength(TwoFactorCodeRules.MaxLength);
     }
 }

@@ -7,7 +7,10 @@ using CaseRegister.Infrastructure.KeyProtection;
 using CaseRegister.Infrastructure.Persistence;
 using CaseRegister.Infrastructure.Seeding;
 using CaseRegister.Infrastructure.Security;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
+using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -113,7 +116,7 @@ public static class DependencyInjection
                 options.SignIn.RequireConfirmedPhoneNumber = false;
             })
             .AddEntityFrameworkStores<AppDbContext>()
-            .AddSignInManager()
+            .AddSignInManager<AppSignInManager>()
             .AddDefaultTokenProviders()
             .AddUserValidator<AccountUserValidator>()
             .AddPasswordValidator<PasswordLengthLimitValidator>()
@@ -134,6 +137,18 @@ public static class DependencyInjection
         services.AddScoped<DummyPasswordVerifier>();
         services.AddScoped<ISignInService, SignInService>();
         services.AddScoped<IAccountPasswordService, AccountPasswordService>();
+
+        // Two-factor, sessions and the shared password check.
+        services.AddScoped<CredentialChecker>();
+        services.AddScoped<ITwoFactorService, TwoFactorService>();
+        services.AddScoped<ISessionService, SessionService>();
+        services.AddSingleton<AuthenticatorKeyProtector>();
+        services.AddOptions<TwoFactorOptions>();
+        services.AddSingleton<TwoFactorAttemptLimiter>();
+
+        // Sessions live in Postgres. The cookie handler is pointed at this store by the Api project.
+        services.AddHttpContextAccessor();
+        services.AddSingleton<ITicketStore, DatabaseTicketStore>();
     }
 
     private static void AddKeyProtection(IServiceCollection services, IConfiguration configuration)
@@ -146,6 +161,13 @@ public static class DependencyInjection
             .SetApplicationName(ApplicationName)
             // Default: 90 days. Stated so it cannot silently change.
             .SetDefaultKeyLifetime(KeyLifetime)
+            // Default: AES-256-CBC with an HMAC. GCM is authenticated encryption in one step, and is what the
+            // rest of the system uses for data at rest.
+            .UseCryptographicAlgorithms(new AuthenticatedEncryptorConfiguration
+            {
+                EncryptionAlgorithm = EncryptionAlgorithm.AES_256_GCM,
+                ValidationAlgorithm = ValidationAlgorithm.HMACSHA256,
+            })
             .PersistKeysToDbContext<AppDbContext>()
             .ProtectKeysWithCertificate(certificate);
     }

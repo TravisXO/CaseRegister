@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -37,21 +38,37 @@ public static class WebSecurityExtensions
 
     private static void AddSessionCookie(IServiceCollection services)
     {
-        // Registers the Identity cookie schemes (the sign-in session is the application one).
-        services.AddAuthentication(IdentityConstants.ApplicationScheme).AddIdentityCookies();
-        services.ConfigureApplicationCookie(SessionCookie.Configure);
+        // Identity's AddIdentityCookies would register four schemes. Only what is needed is registered:
+        //   - the session, and the short two-factor step (both hardened);
+        //   - "remember this device", present only because the security stamp check signs out of it by
+        //     name; it is inert and honours nothing (two-factor remember-me is disabled);
+        //   - no external-login scheme at all (there are no external logins).
+        services.AddAuthentication(IdentityConstants.ApplicationScheme)
+            .AddCookie(IdentityConstants.ApplicationScheme, SessionCookie.Configure)
+            .AddCookie(IdentityConstants.TwoFactorUserIdScheme, SessionCookie.ConfigureTwoFactorStep)
+            .AddCookie(IdentityConstants.TwoFactorRememberMeScheme, SessionCookie.ConfigureDisabledRememberMe);
 
-        // Run all cookie and stamp timing from the injected clock, so tests can move time.
+        // Sessions are kept on the server, so the session cookie holds only a session id. All cookie and
+        // stamp timing runs from the injected clock, so tests can move time.
         services.AddOptions<CookieAuthenticationOptions>(IdentityConstants.ApplicationScheme)
+            .Configure<TimeProvider, ITicketStore>((options, timeProvider, store) =>
+            {
+                options.TimeProvider = timeProvider;
+                options.SessionStore = store;
+            });
+        services.AddOptions<CookieAuthenticationOptions>(IdentityConstants.TwoFactorUserIdScheme)
             .Configure<TimeProvider>((options, timeProvider) => options.TimeProvider = timeProvider);
 
         services.Configure<SecurityStampValidatorOptions>(options =>
         {
             // Default: 30 minutes. A changed password or a suspension ends other sessions within 5.
             options.ValidationInterval = SessionCookie.StampValidationInterval;
+            options.OnRefreshingPrincipal = SessionCookie.CarryClaimsOver;
         });
         services.AddOptions<SecurityStampValidatorOptions>()
             .Configure<TimeProvider>((options, timeProvider) => options.TimeProvider = timeProvider);
+
+        services.AddAuthorization(AuthorizationPolicies.Configure);
     }
 
     private static void AddAntiforgery(IServiceCollection services)

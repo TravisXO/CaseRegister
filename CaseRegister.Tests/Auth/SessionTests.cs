@@ -12,15 +12,15 @@ public class SessionTests(PostgresFixture postgres)
 {
     private const string Email = "member@example.test";
 
-    private async Task<(ApiFactory Factory, ApiClient Client, HttpResponseMessage SignIn)> SignedInAsync()
+    private async Task<(ApiFactory Factory, ApiClient Client, HttpResponseMessage SignIn, ApplicationUser User)> SignedInAsync()
     {
         var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email);
+        var user = await factory.CreateUserAsync(Email);
         var client = factory.CreateApiClient();
-        var response = await client.SignInAsync(Email);
+        var response = await client.SignInWithTwoFactorAsync(factory, user);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        return (factory, client, response);
+        return (factory, client, response, user);
     }
 
     private static async Task<HttpStatusCode> SessionStatusAsync(ApiClient client) =>
@@ -31,7 +31,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task The_session_cookie_is_host_prefixed_http_only_secure_and_same_site_strict()
     {
-        var (factory, _, response) = await SignedInAsync();
+        var (factory, _, response, _) = await SignedInAsync();
         await using var _ = factory;
 
         var cookie = ApiClient.SetCookieHeader(response, "__Host-cr");
@@ -48,7 +48,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task The_session_cookie_is_never_persistent()
     {
-        var (factory, _, response) = await SignedInAsync();
+        var (factory, _, response, _) = await SignedInAsync();
         await using var _ = factory;
 
         var attributes = ApiClient.SetCookieHeader(response, "__Host-cr")!.ToLowerInvariant();
@@ -61,7 +61,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task No_other_cookie_is_set_by_signing_in()
     {
-        var (factory, _, response) = await SignedInAsync();
+        var (factory, _, response, _) = await SignedInAsync();
         await using var _ = factory;
 
         var names = ApiClient.SetCookieHeaders(response).Select(header => header.Split('=')[0]).ToList();
@@ -74,7 +74,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task The_session_ends_after_30_idle_minutes()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         factory.Clock.Advance(TimeSpan.FromMinutes(31));
@@ -85,7 +85,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task The_session_is_still_open_just_inside_the_idle_limit()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         factory.Clock.Advance(TimeSpan.FromMinutes(29));
@@ -96,7 +96,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task Activity_keeps_the_session_alive_well_past_30_minutes()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         // 20 minutes between requests, for two hours: never idle for 30.
@@ -112,7 +112,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task However_active_the_user_is_the_session_ends_8_hours_after_signing_in()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         // Busy all day: a request every 20 minutes, so the idle timeout never fires.
@@ -132,12 +132,12 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task After_the_absolute_limit_the_member_can_sign_in_again_for_a_fresh_8_hours()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, user) = await SignedInAsync();
         await using var _ = factory;
         factory.Clock.Advance(TimeSpan.FromHours(8));
         Assert.Equal(HttpStatusCode.Unauthorized, await SessionStatusAsync(client));
 
-        Assert.Equal(HttpStatusCode.OK, (await client.SignInAsync(Email)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SignInWithTwoFactorAsync(factory, user)).StatusCode);
 
         // A fresh 8 hours: still open after 7 hours of steady activity (a request every 20 minutes).
         for (var i = 0; i < 21; i++)
@@ -166,7 +166,7 @@ public class SessionTests(PostgresFixture postgres)
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
 
-        var response = await factory.CreateApiClient().ChangePasswordAsync("whatever it was", "whatever it will be");
+        var response = await factory.CreateApiClient().ChangePasswordAsync("whatever it was", "whatever it will be", "123456");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Null(response.Headers.Location);
@@ -175,7 +175,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task A_signed_in_member_refused_by_a_policy_gets_403_and_no_redirect()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         var response = await client.GetAsync("/probe/forbidden");
@@ -199,7 +199,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task A_changed_security_stamp_ends_the_session_but_only_at_the_next_5_minute_check()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         using (var scope = factory.Services.CreateScope())
@@ -220,7 +220,7 @@ public class SessionTests(PostgresFixture postgres)
     public async Task A_session_whose_account_is_no_longer_approved_ends_at_the_next_check_only_if_the_stamp_changed()
     {
         // Suspension changes the stamp (see the sign-in tests); this confirms the session really dies with it.
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         using (var scope = factory.Services.CreateScope())
@@ -242,7 +242,7 @@ public class SessionTests(PostgresFixture postgres)
     [Fact]
     public async Task Signing_out_ends_the_session()
     {
-        var (factory, client, _) = await SignedInAsync();
+        var (factory, client, _, _) = await SignedInAsync();
         await using var _ = factory;
 
         var response = await client.SendAsync(HttpMethod.Post, "/api/auth/sign-out");

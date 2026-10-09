@@ -1,4 +1,6 @@
 using CaseRegister.Api.Security;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Infrastructure.Identity;
@@ -70,12 +72,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public int SignInPerAccountPerHour { get; init; } = 10_000;
 
+    /// <summary>Two-factor codes tried per user per minute. High by default so only the rate-limit tests meet it.</summary>
+    public int TwoFactorAttemptsPerMinute { get; init; } = 10_000;
+
     /// <summary>The application with a database behind it: migrated, with the least-privilege role and its grants.</summary>
     public static async Task<ApiFactory> CreateAsync(
         PostgresFixture postgres,
         Action<Dictionary<string, string?>>? adjustSettings = null,
         int signInPerIpPerMinute = 10_000,
-        int signInPerAccountPerHour = 10_000)
+        int signInPerAccountPerHour = 10_000,
+        int twoFactorAttemptsPerMinute = 10_000)
     {
         await postgres.EnsureAppRoleAsync();
         var owner = await postgres.CreateDatabaseAsync();
@@ -87,6 +93,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             SignInPerIpPerMinute = signInPerIpPerMinute,
             SignInPerAccountPerHour = signInPerAccountPerHour,
+            TwoFactorAttemptsPerMinute = twoFactorAttemptsPerMinute,
         };
     }
 
@@ -107,12 +114,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         }
     });
 
+    /// <summary>
+    /// Creates an account. By default it already has two-factor switched on (with a key the test can
+    /// generate codes for), because that is what almost every account in the real system will have.
+    /// </summary>
     public async Task<ApplicationUser> CreateUserAsync(
         string email,
         AccountStatus status = AccountStatus.Approved,
         string password = Password,
         string fullName = "Test Person",
-        int agentRegistrationNumber = 0)
+        int agentRegistrationNumber = 0,
+        bool twoFactor = true)
     {
         using var scope = Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
@@ -124,7 +136,60 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         var result = await users.CreateAsync(user, password);
         Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(error => error.Code)));
 
+        if (twoFactor)
+        {
+            await EnrolTwoFactorAsync(user);
+        }
+
         return user;
+    }
+
+    private readonly ConcurrentDictionary<Guid, byte[]> _twoFactorKeys = new();
+    private readonly ConcurrentDictionary<Guid, long> _lastStepUsed = new();
+
+    /// <summary>Switches two-factor on for an account directly in the database, remembering the key.</summary>
+    public async Task EnrolTwoFactorAsync(ApplicationUser user)
+    {
+        var key = RandomNumberGenerator.GetBytes(Totp.KeyBytes);
+
+        using var scope = Services.CreateScope();
+        var protector = scope.ServiceProvider.GetRequiredService<AuthenticatorKeyProtector>();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        db.Authenticators.Add(new AuthenticatorRecord(user.Id, protector.Protect(key)) { EnabledAt = Clock.GetUtcNow() });
+        await db.SaveChangesAsync();
+
+        _twoFactorKeys[user.Id] = key;
+    }
+
+    /// <summary>Remembers a key the app generated (for example during enrolment), so codes can be made for it.</summary>
+    public void RememberTwoFactorKey(ApplicationUser user, byte[] key) => _twoFactorKeys[user.Id] = key;
+
+    public byte[] TwoFactorKey(ApplicationUser user) => _twoFactorKeys[user.Id];
+
+    /// <summary>The code for a specific time step, with no bookkeeping. For tests of the window itself.</summary>
+    public string CodeForStep(ApplicationUser user, long step) => Totp.ComputeCode(_twoFactorKeys[user.Id], step);
+
+    public long CurrentStep => Totp.CurrentStep(Clock.GetUtcNow());
+
+    /// <summary>
+    /// A valid code the app has not seen yet. A code is good once, so if the current step was already
+    /// used for this account the clock is moved on to the next step first.
+    /// </summary>
+    public string NextTotpCode(ApplicationUser user)
+    {
+        var now = Clock.GetUtcNow();
+        var step = Totp.CurrentStep(now);
+
+        if (_lastStepUsed.TryGetValue(user.Id, out var last) && step <= last)
+        {
+            Clock.Advance(DateTimeOffset.FromUnixTimeSeconds((last + 1) * Totp.StepSeconds) - now);
+            step = last + 1;
+        }
+
+        _lastStepUsed[user.Id] = step;
+
+        return Totp.ComputeCode(_twoFactorKeys[user.Id], step);
     }
 
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> query)
@@ -176,6 +241,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
                 options.SignInPerIpPerMinute = SignInPerIpPerMinute;
                 options.SignInPerAccountPerHour = SignInPerAccountPerHour;
             });
+
+            services.PostConfigure<TwoFactorOptions>(options => options.AttemptsPerMinutePerUser = TwoFactorAttemptsPerMinute);
 
             // Test-only endpoints (see ProbeController).
             services.AddControllers().AddApplicationPart(typeof(ProbeController).Assembly);

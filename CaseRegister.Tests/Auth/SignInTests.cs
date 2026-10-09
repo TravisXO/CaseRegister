@@ -19,7 +19,22 @@ public class SignInTests(PostgresFixture postgres)
     // --- Who can sign in ---------------------------------------------------------------------
 
     [Fact]
-    public async Task An_approved_member_signs_in()
+    public async Task An_approved_member_signs_in_with_a_password_and_a_code()
+    {
+        await using var factory = await ApiFactory.CreateAsync(postgres);
+        var user = await factory.CreateUserAsync(Email);
+        var client = factory.CreateApiClient();
+
+        var response = await client.SignInWithTwoFactorAsync(factory, user);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/probe/members-only")).StatusCode);
+        var session = await (await client.GetAsync("/api/auth/session")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(session.GetProperty("twoFactorComplete").GetBoolean());
+    }
+
+    [Fact]
+    public async Task The_right_password_alone_opens_no_session_when_the_account_has_two_factor()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         await factory.CreateUserAsync(Email);
@@ -28,7 +43,10 @@ public class SignInTests(PostgresFixture postgres)
         var response = await client.SignInAsync(Email);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/auth/session")).StatusCode);
+        Assert.Equal("two-factor-required", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString());
+        Assert.Null(ApiClient.SetCookieHeader(response, "__Host-cr"));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/session")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/probe/members-only")).StatusCode);
     }
 
     [Fact]
@@ -51,16 +69,23 @@ public class SignInTests(PostgresFixture postgres)
     public async Task Only_an_approved_account_can_sign_in(AccountStatus status, HttpStatusCode expected)
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email, status);
+        var user = await factory.CreateUserAsync(Email, status);
         var client = factory.CreateApiClient();
 
         var response = await client.SignInAsync(Email);
 
         Assert.Equal(expected, response.StatusCode);
-        if (expected != HttpStatusCode.OK)
+        if (expected == HttpStatusCode.OK)
         {
-            // Correct password, but no session: not even a cookie.
+            Assert.Equal(HttpStatusCode.OK, (await client.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/probe/members-only")).StatusCode);
+        }
+        else
+        {
+            // Correct password, but no way in: no step cookie to carry on with, no session.
+            Assert.Null(ApiClient.SetCookieHeader(response, "__Host-cr-2fa"));
             Assert.Null(ApiClient.SetCookieHeader(response, "__Host-cr"));
+            Assert.Equal(HttpStatusCode.Unauthorized, (await client.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/session")).StatusCode);
         }
     }
@@ -285,10 +310,10 @@ public class SignInTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Four_wrong_passwords_do_not_lock_and_a_right_one_clears_the_count()
+    public async Task Four_wrong_passwords_do_not_lock_and_only_finishing_two_factor_clears_the_count()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email);
+        var user = await factory.CreateUserAsync(Email);
         var client = factory.CreateApiClient();
 
         for (var i = 0; i < 4; i++)
@@ -296,7 +321,12 @@ public class SignInTests(PostgresFixture postgres)
             await client.SignInAsync(Email, "wrong password " + i);
         }
 
+        // The right password gets through the first step but does not forgive the earlier failures:
+        // someone with a stolen password must not be able to clear the counter while guessing codes.
         Assert.Equal(HttpStatusCode.OK, (await client.SignInAsync(Email)).StatusCode);
+        Assert.Equal(4, (await factory.GetUserAsync(Email)).AccessFailedCount);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
         Assert.Equal(0, (await factory.GetUserAsync(Email)).AccessFailedCount);
     }
 
@@ -383,9 +413,9 @@ public class SignInTests(PostgresFixture postgres)
     public async Task A_suspension_ends_sessions_the_account_already_had_open()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email);
+        var user = await factory.CreateUserAsync(Email);
         var session = factory.CreateApiClient();
-        await session.SignInAsync(Email);
+        await session.SignInWithTwoFactorAsync(factory, user);
         Assert.Equal(HttpStatusCode.OK, (await session.GetAsync("/api/auth/session")).StatusCode);
 
         for (var round = 0; round < 3; round++)
@@ -410,7 +440,7 @@ public class SignInTests(PostgresFixture postgres)
         await using var factory = await ApiFactory.CreateAsync(postgres);
         var user = await factory.CreateUserAsync(Email);
 
-        await factory.CreateApiClient().SignInAsync(Email);
+        await factory.CreateApiClient().SignInWithTwoFactorAsync(factory, user);
 
         var entry = Assert.Single(await AuditAsync(factory), record => record.Action == "SignInSucceeded");
         Assert.Equal(user.Id, entry.ActorUserId);

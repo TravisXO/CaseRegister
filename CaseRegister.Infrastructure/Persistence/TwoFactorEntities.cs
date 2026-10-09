@@ -1,0 +1,98 @@
+using CaseRegister.Domain.Common;
+
+namespace CaseRegister.Infrastructure.Persistence;
+
+/// <summary>
+/// A user's authenticator (TOTP) key. The key is stored encrypted, never in the clear. It only counts
+/// once <see cref="EnabledAt"/> is set, which happens after a valid code proves the app has it.
+/// </summary>
+public sealed class AuthenticatorRecord : Entity
+{
+    public AuthenticatorRecord()
+    {
+    }
+
+    public AuthenticatorRecord(Guid userId, string encryptedKey)
+    {
+        UserId = userId;
+        EncryptedKey = encryptedKey;
+    }
+
+    public Guid UserId { get; private set; }
+
+    /// <summary>The key, encrypted with the data protection key ring (itself encrypted by the certificate).</summary>
+    public string EncryptedKey { get; set; } = string.Empty;
+
+    public DateTimeOffset? EnabledAt { get; set; }
+
+    /// <summary>The time step of the last code accepted. A code from that step or an earlier one is a replay.</summary>
+    public long? LastUsedStep { get; set; }
+}
+
+/// <summary>A recovery code. Only its hash is stored; it works once and is then retired.</summary>
+public sealed class RecoveryCodeRecord : Entity
+{
+    public RecoveryCodeRecord()
+    {
+    }
+
+    public RecoveryCodeRecord(Guid userId, string codeHash)
+    {
+        UserId = userId;
+        CodeHash = codeHash;
+    }
+
+    public Guid UserId { get; private set; }
+
+    public string CodeHash { get; private set; } = string.Empty;
+
+    public DateTimeOffset? UsedAt { get; set; }
+
+    /// <summary>Set when a new set of codes replaced this one before it was used.</summary>
+    public DateTimeOffset? RevokedAt { get; set; }
+}
+
+/// <summary>
+/// A sign-in session kept on the server. The browser's cookie holds only a session id; everything
+/// else lives here, so a session can be ended at once by removing its row.
+/// </summary>
+public sealed class UserSession : Entity
+{
+    public UserSession()
+    {
+    }
+
+    public UserSession(
+        Guid userId,
+        string sessionHash,
+        byte[] ticket,
+        DateTimeOffset expiresAt,
+        DateTimeOffset lastActiveAt,
+        string? ipAddress,
+        string? userAgent)
+    {
+        UserId = userId;
+        SessionHash = sessionHash;
+        Ticket = ticket;
+        ExpiresAt = expiresAt;
+        LastActiveAt = lastActiveAt;
+        IpAddress = ipAddress;
+        UserAgent = userAgent;
+    }
+
+    public Guid UserId { get; private set; }
+
+    /// <summary>SHA-256 of the session id in the cookie. The id itself is not stored, so a copy of this table cannot be used to sign in.</summary>
+    public string SessionHash { get; private set; } = string.Empty;
+
+    /// <summary>The authentication ticket (who, claims, timings), serialised and protected.</summary>
+    public byte[] Ticket { get; set; } = [];
+
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    public DateTimeOffset LastActiveAt { get; set; }
+
+    public string? IpAddress { get; private set; }
+
+    public string? UserAgent { get; private set; }
+}

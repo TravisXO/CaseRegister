@@ -23,7 +23,8 @@ app.UseForwardedHeaders();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    // Development only, and exempt from the deny-by-default policy so the API description can be read.
+    app.MapOpenApi().AllowAnonymous();
 
     // Development only. Production schema changes are applied deliberately, never on startup.
     await app.Services.MigrateDatabaseAsync();

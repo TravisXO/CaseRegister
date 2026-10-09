@@ -8,6 +8,11 @@ public enum AuditAction
     AccountSuspended,
     PasswordChanged,
     PasswordChangeFailed,
+    TwoFactorEnrolled,
+    TwoFactorFailed,
+    RecoveryCodeUsed,
+    RecoveryCodesRegenerated,
+    SessionRevoked,
 }
 
 /// <param name="Action">What happened.</param>

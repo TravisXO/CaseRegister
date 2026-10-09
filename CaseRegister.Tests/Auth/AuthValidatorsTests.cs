@@ -40,13 +40,44 @@ public class AuthValidatorsTests
     }
 
     [Fact]
-    public void Changing_a_password_needs_both_and_caps_both_at_128()
+    public void Changing_a_password_needs_both_passwords_and_a_code_and_caps_them()
     {
-        Assert.True(_change.Validate(new ChangePasswordCommand("old password here", "new password here")).IsValid);
-        Assert.False(_change.Validate(new ChangePasswordCommand("", "new password here")).IsValid);
-        Assert.False(_change.Validate(new ChangePasswordCommand("old password here", "")).IsValid);
-        Assert.False(_change.Validate(new ChangePasswordCommand(new string('a', 129), "new password here")).IsValid);
-        Assert.False(_change.Validate(new ChangePasswordCommand("old password here", new string('a', 129))).IsValid);
+        Assert.True(_change.Validate(new ChangePasswordCommand("old password here", "new password here", "123456")).IsValid);
+        Assert.False(_change.Validate(new ChangePasswordCommand("", "new password here", "123456")).IsValid);
+        Assert.False(_change.Validate(new ChangePasswordCommand("old password here", "", "123456")).IsValid);
+        Assert.False(_change.Validate(new ChangePasswordCommand(new string('a', 129), "new password here", "123456")).IsValid);
+        Assert.False(_change.Validate(new ChangePasswordCommand("old password here", new string('a', 129), "123456")).IsValid);
+    }
+}
+
+public class TwoFactorValidatorsTests
+{
+    [Theory]
+    [InlineData("123456", true)]
+    [InlineData("AB3D-EF4G-HJ5K-MN6P", true)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    public void A_code_is_required(string code, bool valid)
+    {
+        Assert.Equal(valid, new TwoFactorCodeCommandValidator().Validate(new TwoFactorCodeCommand(code)).IsValid);
+    }
+
+    [Fact]
+    public void A_code_is_capped_in_length()
+    {
+        var validator = new TwoFactorCodeCommandValidator();
+
+        Assert.True(validator.Validate(new TwoFactorCodeCommand(new string('1', TwoFactorCodeRules.MaxLength))).IsValid);
+        Assert.False(validator.Validate(new TwoFactorCodeCommand(new string('1', TwoFactorCodeRules.MaxLength + 1))).IsValid);
+    }
+
+    [Fact]
+    public void Changing_a_password_without_a_code_is_refused()
+    {
+        var validator = new ChangePasswordCommandValidator();
+
+        Assert.False(validator.Validate(new ChangePasswordCommand("old password here", "new password here", "")).IsValid);
+        Assert.False(validator.Validate(new ChangePasswordCommand("old password here", "new password here", new string('1', 33))).IsValid);
     }
 }
 

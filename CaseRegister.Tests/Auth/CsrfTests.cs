@@ -149,13 +149,13 @@ public class CsrfTests(PostgresFixture postgres)
     public async Task The_real_auth_endpoints_are_protected_too(string path)
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email);
+        var user = await factory.CreateUserAsync(Email);
         var client = factory.CreateApiClient();
 
         // Sign-out and change-password need a session to get past authentication; only then is the token checked.
         if (!path.EndsWith("sign-in", StringComparison.Ordinal))
         {
-            Assert.Equal(HttpStatusCode.OK, (await client.SignInAsync(Email)).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await client.SignInWithTwoFactorAsync(factory, user)).StatusCode);
         }
 
         var turnstileCallsBefore = factory.Turnstile.Calls.Count;
@@ -173,10 +173,10 @@ public class CsrfTests(PostgresFixture postgres)
     public async Task A_token_fetched_before_signing_in_is_no_good_afterwards_so_the_front_end_refetches()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email);
+        var user = await factory.CreateUserAsync(Email);
         var client = factory.CreateApiClient();
         var staleToken = await client.GetCsrfTokenAsync();
-        await client.SignInAsync(Email);
+        await client.SignInWithTwoFactorAsync(factory, user);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/api/auth/sign-out", UriKind.Relative));
         request.Headers.Add(ApiClient.CsrfHeader, staleToken);

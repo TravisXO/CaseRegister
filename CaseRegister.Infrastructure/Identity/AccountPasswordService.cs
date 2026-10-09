@@ -7,10 +7,12 @@ namespace CaseRegister.Infrastructure.Identity;
 internal sealed class AccountPasswordService(
     UserManager<ApplicationUser> users,
     SignInManager<ApplicationUser> signInManager,
-    LockoutTracker lockouts,
+    CredentialChecker credentials,
+    ITwoFactorService twoFactor,
     IAuditLog audit) : IAccountPasswordService
 {
     private const string IncorrectCurrentPassword = "The current password is incorrect.";
+    private const string IncorrectCode = "The two-factor code is not valid.";
 
     public async Task<ChangePasswordResult> ChangePasswordAsync(
         Guid userId,
@@ -28,18 +30,27 @@ internal sealed class AccountPasswordService(
         }
 
         // Guessing the current password from a stolen session counts towards lockout like any other guess.
-        var check = await signInManager.CheckPasswordSignInAsync(user, command.CurrentPassword, lockoutOnFailure: true);
-        if (!check.Succeeded)
+        if (!await credentials.VerifyPasswordAsync(user, command.CurrentPassword, remoteIpAddress, cancellationToken))
         {
-            if (check.IsLockedOut)
-            {
-                await lockouts.RecordLockoutAsync(user, remoteIpAddress, cancellationToken);
-            }
-
             await audit.WriteAsync(
                 new AuditEntry(AuditAction.PasswordChangeFailed, user.Id, IpAddress: remoteIpAddress, Detail: "wrong current password"),
                 cancellationToken);
             return ChangePasswordResult.Failure(IncorrectCurrentPassword);
+        }
+
+        // And a current second factor as well: the password alone is not enough to change the password.
+        var second = await twoFactor.VerifyCodeAsync(userId, command.TwoFactorCode, remoteIpAddress, cancellationToken);
+        if (second.Outcome == TwoFactorOutcome.RateLimited)
+        {
+            return ChangePasswordResult.TooManyAttempts(second.RetryAfter ?? TimeSpan.FromMinutes(1));
+        }
+
+        if (second.Outcome != TwoFactorOutcome.Succeeded)
+        {
+            await audit.WriteAsync(
+                new AuditEntry(AuditAction.PasswordChangeFailed, user.Id, IpAddress: remoteIpAddress, Detail: "wrong two-factor code"),
+                cancellationToken);
+            return ChangePasswordResult.Failure(IncorrectCode);
         }
 
         // Validates the new password (policy, personal details, breaches) and, on success, gives the

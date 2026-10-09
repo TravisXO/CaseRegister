@@ -46,6 +46,53 @@ internal sealed class AuditLogRecordConfiguration : IEntityTypeConfiguration<Aud
     }
 }
 
+internal sealed class AuthenticatorRecordConfiguration : IEntityTypeConfiguration<AuthenticatorRecord>
+{
+    public void Configure(EntityTypeBuilder<AuthenticatorRecord> builder)
+    {
+        builder.ToTable("user_authenticators");
+
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(record => record.UserId).OnDelete(DeleteBehavior.Restrict);
+
+        // One authenticator per account.
+        builder.HasIndex(record => record.UserId).IsUnique();
+
+        builder.Property(record => record.EncryptedKey).IsRequired();
+    }
+}
+
+internal sealed class RecoveryCodeRecordConfiguration : IEntityTypeConfiguration<RecoveryCodeRecord>
+{
+    public void Configure(EntityTypeBuilder<RecoveryCodeRecord> builder)
+    {
+        builder.ToTable("recovery_codes");
+
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(record => record.UserId).OnDelete(DeleteBehavior.Restrict);
+
+        // SHA-256 as hex: 64 characters.
+        builder.Property(record => record.CodeHash).HasMaxLength(64).IsRequired();
+        builder.HasIndex(record => new { record.UserId, record.CodeHash }).IsUnique();
+    }
+}
+
+internal sealed class UserSessionConfiguration : IEntityTypeConfiguration<UserSession>
+{
+    public void Configure(EntityTypeBuilder<UserSession> builder)
+    {
+        builder.ToTable("user_sessions");
+
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(session => session.UserId).OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(session => session.SessionHash).HasMaxLength(64).IsRequired();
+        builder.HasIndex(session => session.SessionHash).IsUnique();
+        builder.HasIndex(session => new { session.UserId, session.CreatedAt });
+
+        builder.Property(session => session.Ticket).IsRequired();
+        builder.Property(session => session.IpAddress).HasMaxLength(45);
+        builder.Property(session => session.UserAgent).HasMaxLength(200);
+    }
+}
+
 internal sealed class LockoutEventConfiguration : IEntityTypeConfiguration<LockoutEvent>
 {
     public void Configure(EntityTypeBuilder<LockoutEvent> builder)

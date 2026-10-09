@@ -60,8 +60,8 @@ public class DataProtectionKeyTests(PostgresFixture postgres)
     public async Task A_session_issued_by_one_server_is_valid_on_another_because_the_keys_are_shared()
     {
         await using var first = await ApiFactory.CreateAsync(postgres);
-        await first.CreateUserAsync(Email);
-        var response = await first.CreateApiClient().SignInAsync(Email);
+        var user = await first.CreateUserAsync(Email);
+        var response = await first.CreateApiClient().SignInWithTwoFactorAsync(first, user);
         var cookieHeader = ApiClient.SetCookieHeader(response, "__Host-cr")!;
         var cookiePair = cookieHeader.Split(';')[0];
 
@@ -97,5 +97,17 @@ public class DataProtectionKeyTests(PostgresFixture postgres)
         var result = await plain.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_new_key_uses_AES_256_GCM()
+    {
+        await using var factory = await ApiFactory.CreateAsync(postgres);
+
+        _ = factory.CreateApiClient();
+
+        var key = Assert.Single(await KeysAsync(factory));
+        Assert.Contains("AES_256_GCM", key.Xml, StringComparison.Ordinal);
+        Assert.DoesNotContain("AES_256_CBC", key.Xml, StringComparison.Ordinal);
     }
 }

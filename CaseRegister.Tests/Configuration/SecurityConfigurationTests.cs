@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Claims;
 using CaseRegister.Api.Security;
 using CaseRegister.Application.Auth;
 using CaseRegister.Infrastructure;
@@ -10,6 +11,8 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
+using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -251,5 +254,128 @@ public class SecurityConfigurationTests(ConfigurationFixture fixture) : IClassFi
 
         Assert.Equal(1, forwarded.ForwardLimit);
         Assert.Equal(ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto, forwarded.ForwardedHeaders);
+    }
+
+    // --- Part 2: two-factor and sessions ------------------------------------------------------
+
+    [Fact]
+    public async Task Only_the_cookie_schemes_that_are_needed_exist_and_there_is_no_external_login_scheme()
+    {
+        var schemes = await Services.GetRequiredService<IAuthenticationSchemeProvider>().GetAllSchemesAsync();
+
+        Assert.Equal(
+            ["Identity.Application", "Identity.TwoFactorRememberMe", "Identity.TwoFactorUserId"],
+            schemes.Select(scheme => scheme.Name).Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(schemes, scheme => scheme.Name == IdentityConstants.ExternalScheme);
+    }
+
+    private CookieAuthenticationOptions CookieOptions(string scheme) =>
+        Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(scheme);
+
+    [Fact]
+    public void The_two_factor_step_cookie_has_the_same_hardening_as_the_session_cookie()
+    {
+        var options = CookieOptions(IdentityConstants.TwoFactorUserIdScheme);
+
+        Assert.Equal("__Host-cr-2fa", options.Cookie.Name);
+        Assert.True(options.Cookie.HttpOnly);
+        Assert.Equal(CookieSecurePolicy.Always, options.Cookie.SecurePolicy);
+        Assert.Equal(SameSiteMode.Strict, options.Cookie.SameSite);
+        Assert.Equal("/", options.Cookie.Path);
+        Assert.Null(options.Cookie.Domain);
+    }
+
+    [Fact]
+    public void The_two_factor_step_cookie_lasts_five_minutes_and_does_not_slide()
+    {
+        var options = CookieOptions(IdentityConstants.TwoFactorUserIdScheme);
+
+        Assert.Equal(TimeSpan.FromMinutes(5), options.ExpireTimeSpan);
+        Assert.False(options.SlidingExpiration);
+    }
+
+    [Fact]
+    public async Task The_remember_this_device_scheme_is_inert_and_honours_nothing()
+    {
+        var options = CookieOptions(IdentityConstants.TwoFactorRememberMeScheme);
+        Assert.Equal("__Host-cr-2fa-remember", options.Cookie.Name);
+        Assert.True(options.Cookie.HttpOnly);
+        Assert.Equal(CookieSecurePolicy.Always, options.Cookie.SecurePolicy);
+        Assert.Equal(SameSiteMode.Strict, options.Cookie.SameSite);
+
+        // Even a well-formed ticket arriving under this scheme is thrown away.
+        var scheme = new AuthenticationScheme(IdentityConstants.TwoFactorRememberMeScheme, null, typeof(CookieAuthenticationHandler));
+        var ticket = new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity("test")), scheme.Name);
+        var context = new CookieValidatePrincipalContext(new DefaultHttpContext(), scheme, options, ticket);
+
+        await options.Events.ValidatePrincipal(context);
+
+        Assert.Null(context.Principal);
+    }
+
+    [Fact]
+    public void The_session_cookie_keeps_its_sessions_on_the_server()
+    {
+        Assert.IsType<DatabaseTicketStore>(CookieOptions(IdentityConstants.ApplicationScheme).SessionStore);
+    }
+
+    [Fact]
+    public void At_most_three_sessions_are_active_per_user()
+    {
+        Assert.Equal(3, SessionPolicy.MaxActiveSessions);
+    }
+
+    [Fact]
+    public void Two_factor_codes_are_limited_to_five_a_minute_per_user()
+    {
+        Assert.Equal(5, new TwoFactorOptions().AttemptsPerMinutePerUser);
+    }
+
+    [Fact]
+    public void Authenticator_keys_and_session_tickets_are_protected_for_different_purposes()
+    {
+        Assert.NotEqual(AuthenticatorKeyProtector.Purpose, DatabaseTicketStore.Purpose);
+        Assert.StartsWith("CaseRegister.", AuthenticatorKeyProtector.Purpose, StringComparison.Ordinal);
+        Assert.StartsWith("CaseRegister.", DatabaseTicketStore.Purpose, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_key_ring_uses_AES_256_GCM()
+    {
+        var configuration = Options<KeyManagementOptions>().AuthenticatedEncryptorConfiguration;
+
+        var gcm = Assert.IsType<AuthenticatedEncryptorConfiguration>(configuration);
+        Assert.Equal(EncryptionAlgorithm.AES_256_GCM, gcm.EncryptionAlgorithm);
+    }
+
+    [Fact]
+    public void The_security_stamp_refresh_carries_the_amr_and_session_claims_across_and_nothing_else()
+    {
+        var hook = Options<SecurityStampValidatorOptions>().OnRefreshingPrincipal;
+        Assert.NotNull(hook);
+
+        var current = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim("amr", "mfa"),
+            new Claim("cr:sid", "11111111-1111-1111-1111-111111111111"),
+            new Claim("something-else", "must not be copied"),
+        ]));
+        var rebuilt = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "user")]));
+
+        hook(new SecurityStampRefreshingPrincipalContext { CurrentPrincipal = current, NewPrincipal = rebuilt });
+
+        Assert.True(rebuilt.HasClaim("amr", "mfa"));
+        Assert.True(rebuilt.HasClaim("cr:sid", "11111111-1111-1111-1111-111111111111"));
+        Assert.False(rebuilt.HasClaim(claim => claim.Type == "something-else"));
+    }
+
+    [Fact]
+    public void The_two_factor_settings_are_the_ones_authenticator_apps_expect()
+    {
+        Assert.Equal(30, Totp.StepSeconds);
+        Assert.Equal(6, Totp.Digits);
+        Assert.Equal(1, Totp.StepsEitherSide);
+        Assert.Equal(10, RecoveryCodes.Count);
+        Assert.Equal("CaseRegister", TwoFactorService.Issuer);
     }
 }

@@ -17,6 +17,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<LockoutEvent> LockoutEvents => Set<LockoutEvent>();
 
+    public DbSet<AuthenticatorRecord> Authenticators => Set<AuthenticatorRecord>();
+
+    public DbSet<RecoveryCodeRecord> RecoveryCodes => Set<RecoveryCodeRecord>();
+
+    public DbSet<UserSession> Sessions => Set<UserSession>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

@@ -37,6 +37,15 @@ public sealed class ProbeController : ControllerBase
     [Authorize]
     public IActionResult MembersOnly() => Ok();
 
+    /// <summary>Reachable by anyone signed in, even before two-factor: the named, weaker policy.</summary>
+    [HttpGet("signed-in-only")]
+    [Authorize(Policy = "SignedIn")]
+    public IActionResult SignedInOnly() => Ok();
+
+    /// <summary>No attribute at all: it must still be protected, by the fallback policy.</summary>
+    [HttpGet("unannotated")]
+    public IActionResult Unannotated() => Ok();
+
     [HttpGet("forbidden")]
     [Authorize(Policy = NeverPolicy)]
     public IActionResult Forbidden() => Ok();
