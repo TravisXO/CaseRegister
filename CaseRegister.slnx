@@ -1,3 +1,7 @@
 <Solution>
   <Project Path="CaseRegister.Api/CaseRegister.Api.csproj" />
+  <Project Path="CaseRegister.Application/CaseRegister.Application.csproj" />
+  <Project Path="CaseRegister.Domain/CaseRegister.Domain.csproj" />
+  <Project Path="CaseRegister.Infrastructure/CaseRegister.Infrastructure.csproj" />
+  <Project Path="CaseRegister.Tests/CaseRegister.Tests.csproj" />
 </Solution>
