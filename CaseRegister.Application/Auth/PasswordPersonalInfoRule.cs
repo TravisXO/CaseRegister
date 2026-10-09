@@ -5,7 +5,7 @@ namespace CaseRegister.Application.Auth;
 
 /// <summary>
 /// Rejects passwords that contain the user's own details: their email, a meaningful part of it,
-/// any part of their name, or their registration number.
+/// any part of their name, or their membership number.
 /// </summary>
 public static class PasswordPersonalInfoRule
 {
@@ -13,7 +13,7 @@ public static class PasswordPersonalInfoRule
     private const int MinEmailFragmentLength = 4;
     private const int MinNameFragmentLength = 3;
 
-    // A registration number of 1 to 3 digits ("7") would match countless passwords. Written with its
+    // A membership number of 1 to 3 digits ("7") would match countless passwords. Written with its
     // prefix it always counts; on its own it counts from four digits up.
     private const int MinBareNumberDigits = 4;
 
@@ -21,7 +21,7 @@ public static class PasswordPersonalInfoRule
         string password,
         string email,
         string fullName,
-        AgentRegistrationNumber? registrationNumber,
+        MembershipNumber? membershipNumber,
         string displayPrefix)
     {
         ArgumentNullException.ThrowIfNull(password);
@@ -30,7 +30,7 @@ public static class PasswordPersonalInfoRule
 
         return ContainsAny(candidate, EmailFragments(email))
             || ContainsAny(candidate, NameFragments(fullName))
-            || (registrationNumber is not null && ContainsNumber(candidate, registrationNumber, displayPrefix));
+            || (membershipNumber is not null && ContainsNumber(candidate, membershipNumber, displayPrefix));
     }
 
     private static IEnumerable<string> EmailFragments(string email)
@@ -77,7 +77,7 @@ public static class PasswordPersonalInfoRule
         }
     }
 
-    private static bool ContainsNumber(string candidate, AgentRegistrationNumber number, string displayPrefix)
+    private static bool ContainsNumber(string candidate, MembershipNumber number, string displayPrefix)
     {
         var digits = number.Value.ToString(CultureInfo.InvariantCulture);
         var prefix = displayPrefix.ToLower(CultureInfo.InvariantCulture);

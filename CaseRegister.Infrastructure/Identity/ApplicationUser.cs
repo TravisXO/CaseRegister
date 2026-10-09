@@ -17,12 +17,12 @@ public sealed class ApplicationUser : IdentityUser<Guid>
 
     public string FullName { get; set; } = string.Empty;
 
-    public AgentRegistrationNumber AgentRegistrationNumber { get; set; } = null!;
+    public MembershipNumber MembershipNumber { get; set; } = null!;
 
     public AccountStatus AccountStatus { get; set; } = AccountStatus.Pending;
 
     /// <summary>Creates an account with its email stored in normalised form. It starts as Pending unless told otherwise.</summary>
-    public static ApplicationUser Create(string email, string fullName, AgentRegistrationNumber agentRegistrationNumber, AccountStatus status = AccountStatus.Pending)
+    public static ApplicationUser Create(string email, string fullName, MembershipNumber membershipNumber, AccountStatus status = AccountStatus.Pending)
     {
         var normalised = EmailNormaliser.Normalise(email);
 
@@ -31,7 +31,7 @@ public sealed class ApplicationUser : IdentityUser<Guid>
             UserName = normalised,
             Email = normalised,
             FullName = fullName.Trim(),
-            AgentRegistrationNumber = agentRegistrationNumber,
+            MembershipNumber = membershipNumber,
             AccountStatus = status,
         };
     }

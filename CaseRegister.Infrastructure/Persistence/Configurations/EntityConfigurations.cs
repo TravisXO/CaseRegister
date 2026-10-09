@@ -17,11 +17,11 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
         builder.Property(user => user.FullName).HasMaxLength(200).IsRequired();
 
         // Stored as the integer, shown with the configured prefix. One account per membership number.
-        builder.Property(user => user.AgentRegistrationNumber)
-            .HasConversion(number => number.Value, value => AgentRegistrationNumber.FromValue(value))
-            .HasColumnName("agent_registration_number")
+        builder.Property(user => user.MembershipNumber)
+            .HasConversion(number => number.Value, value => MembershipNumber.FromValue(value))
+            .HasColumnName("membership_number")
             .IsRequired();
-        builder.HasIndex(user => user.AgentRegistrationNumber).IsUnique().HasDatabaseName("ux_users_agent_registration_number");
+        builder.HasIndex(user => user.MembershipNumber).IsUnique().HasDatabaseName("ux_users_membership_number");
 
         // Readable in the database, and robust if the enum is ever reordered.
         builder.Property(user => user.AccountStatus).HasConversion<string>().HasMaxLength(20).IsRequired();

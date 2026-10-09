@@ -8,10 +8,10 @@ public class PasswordPersonalInfoRuleTests
     private const string Prefix = "AGT";
     private const string Email = "jane.mwansa@example.com";
     private const string Name = "Jane Mwansa Banda";
-    private static readonly AgentRegistrationNumber _number = AgentRegistrationNumber.FromValue(884);
-    private static readonly AgentRegistrationNumber _longNumber = AgentRegistrationNumber.FromValue(123456);
+    private static readonly MembershipNumber _number = MembershipNumber.FromValue(884);
+    private static readonly MembershipNumber _longNumber = MembershipNumber.FromValue(123456);
 
-    private static bool Rejected(string password, AgentRegistrationNumber? number = null) =>
+    private static bool Rejected(string password, MembershipNumber? number = null) =>
         PasswordPersonalInfoRule.ContainsPersonalInfo(password, Email, Name, number ?? _number, Prefix);
 
     [Theory]
@@ -40,20 +40,20 @@ public class PasswordPersonalInfoRuleTests
     [InlineData("agt884isme!!")]
     [InlineData("my AGT-884 number")]
     [InlineData("AgT 884 AgT")]
-    public void The_registration_number_in_any_accepted_form_is_rejected(string password)
+    public void The_membership_number_in_any_accepted_form_is_rejected(string password)
     {
         Assert.True(Rejected(password));
     }
 
     [Fact]
-    public void A_short_registration_number_on_its_own_is_not_a_match()
+    public void A_short_membership_number_on_its_own_is_not_a_match()
     {
         // "884" appears in countless unrelated passwords. Only the prefixed forms count for short numbers.
         Assert.False(Rejected("correct horse 884 staple"));
     }
 
     [Fact]
-    public void A_long_registration_number_on_its_own_is_a_match()
+    public void A_long_membership_number_on_its_own_is_a_match()
     {
         Assert.True(Rejected("correct 123456 staple", _longNumber));
         Assert.False(Rejected("correct 654321 staple", _longNumber));

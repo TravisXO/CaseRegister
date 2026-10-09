@@ -39,10 +39,6 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("account_status");
 
-                    b.Property<int>("AgentRegistrationNumber")
-                        .HasColumnType("integer")
-                        .HasColumnName("agent_registration_number");
-
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text")
@@ -70,6 +66,10 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("lockout_end");
+
+                    b.Property<int>("MembershipNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("membership_number");
 
                     b.Property<string>("NormalizedEmail")
                         .HasMaxLength(256)
@@ -109,9 +109,9 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_users");
 
-                    b.HasIndex("AgentRegistrationNumber")
+                    b.HasIndex("MembershipNumber")
                         .IsUnique()
-                        .HasDatabaseName("ux_users_agent_registration_number");
+                        .HasDatabaseName("ux_users_membership_number");
 
                     b.HasIndex("NormalizedEmail")
                         .IsUnique()

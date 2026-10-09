@@ -43,7 +43,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             ["Turnstile:SecretKey"] = TurnstileTestSecret,
 
             // A neutral test prefix, so no test depends on the real default.
-            ["AgentRegistration:DisplayPrefix"] = "AGT",
+            ["Membership:DisplayPrefix"] = "AGT",
         };
         adjustSettings?.Invoke(_settings);
     }
@@ -123,15 +123,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         AccountStatus status = AccountStatus.Approved,
         string password = Password,
         string fullName = "Test Person",
-        int agentRegistrationNumber = 0,
+        int membershipNumber = 0,
         bool twoFactor = true)
     {
         using var scope = Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-        // Spread numbers out so tests do not collide on the unique registration number.
-        var number = agentRegistrationNumber != 0 ? agentRegistrationNumber : Random.Shared.Next(1000, AgentRegistrationNumber.MaxValue);
-        var user = ApplicationUser.Create(email, fullName, AgentRegistrationNumber.FromValue(number), status);
+        // Spread numbers out so tests do not collide on the unique membership number.
+        var number = membershipNumber != 0 ? membershipNumber : Random.Shared.Next(1000, MembershipNumber.MaxValue);
+        var user = ApplicationUser.Create(email, fullName, MembershipNumber.FromValue(number), status);
 
         var result = await users.CreateAsync(user, password);
         Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(error => error.Code)));

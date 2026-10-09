@@ -6,13 +6,13 @@ using Microsoft.Extensions.Options;
 
 namespace CaseRegister.Tests.Configuration;
 
-/// <summary>The registration number's display prefix is one configuration setting and nothing else.</summary>
-public class AgentRegistrationPrefixTests
+/// <summary>The membership number's display prefix is one configuration setting and nothing else.</summary>
+public class MembershipPrefixTests
 {
-    private const string SettingKey = "AgentRegistration:DisplayPrefix";
+    private const string SettingKey = "Membership:DisplayPrefix";
 
     private static string PrefixIn(ApiFactory factory) =>
-        factory.Services.GetRequiredService<IOptions<AgentRegistrationOptions>>().Value.DisplayPrefix;
+        factory.Services.GetRequiredService<IOptions<MembershipOptions>>().Value.DisplayPrefix;
 
     [Fact]
     public void The_shipped_default_is_set_in_appsettings_json()
@@ -56,13 +56,13 @@ public class AgentRegistrationPrefixTests
     [InlineData(null, false)]
     public void Only_one_to_ten_letters_make_a_valid_prefix(string? prefix, bool valid)
     {
-        Assert.Equal(valid, AgentRegistrationOptions.IsValidPrefix(prefix));
+        Assert.Equal(valid, MembershipOptions.IsValidPrefix(prefix));
     }
 
     [Fact]
     public void The_options_class_carries_no_default_so_the_value_lives_in_one_place()
     {
-        Assert.Equal(string.Empty, new AgentRegistrationOptions().DisplayPrefix);
+        Assert.Equal(string.Empty, new MembershipOptions().DisplayPrefix);
     }
 
     [Fact]

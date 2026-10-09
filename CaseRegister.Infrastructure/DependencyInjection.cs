@@ -36,7 +36,7 @@ public static class DependencyInjection
         services.AddSingleton<EntityTimestampInterceptor>();
 
         AddDatabase(services);
-        AddAgentRegistration(services);
+        AddMembership(services);
         AddAccountSecurity(services);
         AddKeyProtection(services, configuration);
         AddExternalClients(services);
@@ -72,15 +72,15 @@ public static class DependencyInjection
         });
     }
 
-    private static void AddAgentRegistration(IServiceCollection services)
+    private static void AddMembership(IServiceCollection services)
     {
         // The display prefix has no default in code: it comes from configuration and a bad value stops startup.
-        services.AddOptions<AgentRegistrationOptions>()
+        services.AddOptions<MembershipOptions>()
             .Configure<IConfiguration>((options, configuration) =>
-                options.DisplayPrefix = configuration[AgentRegistrationOptions.DisplayPrefixKey] ?? string.Empty)
+                options.DisplayPrefix = configuration[MembershipOptions.DisplayPrefixKey] ?? string.Empty)
             .Validate(
-                options => AgentRegistrationOptions.IsValidPrefix(options.DisplayPrefix),
-                $"{AgentRegistrationOptions.DisplayPrefixKey} must be 1 to {AgentRegistrationOptions.MaxPrefixLength} letters.")
+                options => MembershipOptions.IsValidPrefix(options.DisplayPrefix),
+                $"{MembershipOptions.DisplayPrefixKey} must be 1 to {MembershipOptions.MaxPrefixLength} letters.")
             .ValidateOnStart();
     }
 

@@ -52,7 +52,7 @@ public class AccountTests(PostgresFixture postgres)
             UserName = "Jane@Example.test",
             Email = "Jane@Example.test",
             FullName = "Jane",
-            AgentRegistrationNumber = AgentRegistrationNumber.FromValue(1),
+            MembershipNumber = MembershipNumber.FromValue(1),
         };
         var result = await users.CreateAsync(user, ApiFactory.Password);
 
@@ -68,7 +68,7 @@ public class AccountTests(PostgresFixture postgres)
 
         using var scope = factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var duplicate = ApplicationUser.Create("JANE@example.test", "Another Jane", AgentRegistrationNumber.FromValue(2));
+        var duplicate = ApplicationUser.Create("JANE@example.test", "Another Jane", MembershipNumber.FromValue(2));
         var result = await users.CreateAsync(duplicate, ApiFactory.Password);
 
         Assert.False(result.Succeeded);
@@ -85,7 +85,7 @@ public class AccountTests(PostgresFixture postgres)
         // the normalised columns; here we do it by hand so only the database can object.)
         var failure = await Assert.ThrowsAsync<DbUpdateException>(() => factory.WithDbAsync(async db =>
         {
-            var duplicate = ApplicationUser.Create("jane@example.test", "Duplicate", AgentRegistrationNumber.FromValue(3));
+            var duplicate = ApplicationUser.Create("jane@example.test", "Duplicate", MembershipNumber.FromValue(3));
             duplicate.NormalizedEmail = "jane@example.test";
             duplicate.NormalizedUserName = "jane@example.test-other";
             db.Users.Add(duplicate);
@@ -97,35 +97,35 @@ public class AccountTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task The_registration_number_has_a_unique_index_so_two_accounts_cannot_share_one()
+    public async Task The_membership_number_has_a_unique_index_so_two_accounts_cannot_share_one()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync("first@example.test", agentRegistrationNumber: 884);
+        await factory.CreateUserAsync("first@example.test", membershipNumber: 884);
 
         using var scope = factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var second = ApplicationUser.Create("second@example.test", "Second Member", AgentRegistrationNumber.Parse("AGT-884", "AGT"));
+        var second = ApplicationUser.Create("second@example.test", "Second Member", MembershipNumber.Parse("AGT-884", "AGT"));
 
         var failure = await Assert.ThrowsAsync<DbUpdateException>(() => users.CreateAsync(second, ApiFactory.Password));
 
         var postgresError = Assert.IsType<PostgresException>(failure.InnerException);
         Assert.Equal(PostgresErrorCodes.UniqueViolation, postgresError.SqlState);
-        Assert.Equal("ux_users_agent_registration_number", postgresError.ConstraintName);
+        Assert.Equal("ux_users_membership_number", postgresError.ConstraintName);
     }
 
     [Fact]
-    public async Task The_registration_number_is_stored_as_an_integer_and_read_back_with_the_configured_prefix()
+    public async Task The_membership_number_is_stored_as_an_integer_and_read_back_with_the_configured_prefix()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync("jane@example.test", agentRegistrationNumber: 884);
+        await factory.CreateUserAsync("jane@example.test", membershipNumber: 884);
 
         var raw = await factory.WithDbAsync(db => db.Database
-            .SqlQuery<int>($"SELECT agent_registration_number AS \"Value\" FROM users")
+            .SqlQuery<int>($"SELECT membership_number AS \"Value\" FROM users")
             .SingleAsync());
         var stored = await factory.GetUserAsync("jane@example.test");
 
         Assert.Equal(884, raw);
-        Assert.Equal("AGT 884", stored.AgentRegistrationNumber.Format("AGT"));
+        Assert.Equal("AGT 884", stored.MembershipNumber.Format("AGT"));
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public class AccountTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task An_account_needs_a_name_and_a_registration_number()
+    public async Task An_account_needs_a_name_and_a_membership_number()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         using var scope = factory.Services.CreateScope();
@@ -154,13 +154,13 @@ public class AccountTests(PostgresFixture postgres)
 
         Assert.False(result.Succeeded);
         Assert.Contains(result.Errors, error => error.Code == "FullNameRequired");
-        Assert.Contains(result.Errors, error => error.Code == "AgentRegistrationNumberRequired");
+        Assert.Contains(result.Errors, error => error.Code == "MembershipNumberRequired");
     }
 
     [Fact]
     public async Task A_new_account_is_pending_unless_it_is_told_otherwise()
     {
-        var user = ApplicationUser.Create("jane@example.test", "Jane", AgentRegistrationNumber.FromValue(7));
+        var user = ApplicationUser.Create("jane@example.test", "Jane", MembershipNumber.FromValue(7));
 
         Assert.Equal(AccountStatus.Pending, user.AccountStatus);
         await Task.CompletedTask;
@@ -249,7 +249,7 @@ public class AccountTests(PostgresFixture postgres)
         await seeder.SeedAsync();
         await seeder.SeedAsync(); // running it again must not duplicate anything
 
-        var users = await factory.WithDbAsync(db => db.Users.AsNoTracking().OrderBy(user => user.AgentRegistrationNumber).ToListAsync());
+        var users = await factory.WithDbAsync(db => db.Users.AsNoTracking().OrderBy(user => user.MembershipNumber).ToListAsync());
         Assert.Equal(2, users.Count);
         Assert.All(users, user => Assert.EndsWith("@example.test", user.Email, StringComparison.Ordinal));
         Assert.Contains(users, user => user.AccountStatus == AccountStatus.Approved);

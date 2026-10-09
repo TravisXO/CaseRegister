@@ -3,12 +3,12 @@ using System.Text.RegularExpressions;
 namespace CaseRegister.Application.Accounts;
 
 /// <summary>
-/// How registration numbers are shown and typed. The prefix is configuration (AgentRegistration:DisplayPrefix),
+/// How membership numbers are shown and typed. The prefix is configuration (Membership:DisplayPrefix),
 /// so the product can be re-badged without touching the code.
 /// </summary>
-public sealed partial class AgentRegistrationOptions
+public sealed partial class MembershipOptions
 {
-    public const string DisplayPrefixKey = "AgentRegistration:DisplayPrefix";
+    public const string DisplayPrefixKey = "Membership:DisplayPrefix";
     public const int MaxPrefixLength = 10;
 
     /// <summary>
