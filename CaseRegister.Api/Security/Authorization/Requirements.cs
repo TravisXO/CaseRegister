@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CaseRegister.Application.Accounts;
+using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Auth;
 using CaseRegister.Application.Authorization;
 using CaseRegister.Domain.Accounts;
@@ -18,6 +19,14 @@ public sealed class CapabilityRequirement(Capability capability) : IAuthorizatio
 /// use. People who are not agents (the association's staff) are not subject to it.
 /// </summary>
 public sealed class HasCurrentPractisingCertificateRequirement : IAuthorizationRequirement
+{
+}
+
+/// <summary>
+/// An agent's agency is active. A suspended agency's members lose every agent capability, from their next
+/// request. It sits next to the certificate requirement on every policy an agent role can use.
+/// </summary>
+public sealed class ActiveAgencyRequirement : IAuthorizationRequirement
 {
 }
 
@@ -89,7 +98,26 @@ internal sealed class HasCurrentPractisingCertificateHandler(IPractisingCertific
     }
 }
 
-internal sealed class OwnRecordHandler : AuthorizationHandler<OwnRecordRequirement, object>
+internal sealed class ActiveAgencyHandler(IAgencyStatus agencies) : AuthorizationHandler<ActiveAgencyRequirement>
+{
+    protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ActiveAgencyRequirement requirement)
+    {
+        // Not an agent: the requirement does not apply to them.
+        if (!UserClaims.Roles(context.User).Any(role => role.IsAgentRole()))
+        {
+            context.Succeed(requirement);
+            return;
+        }
+
+        // Asked of the database every time, so a suspension counts from the very next request. No agency, no access.
+        if (UserClaims.AgencyId(context.User) is { } agencyId && await agencies.IsActiveAsync(agencyId))
+        {
+            context.Succeed(requirement);
+        }
+    }
+}
+
+internal sealed class OwnRecordHandler: AuthorizationHandler<OwnRecordRequirement, object>
 {
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, OwnRecordRequirement requirement, object resource)
     {

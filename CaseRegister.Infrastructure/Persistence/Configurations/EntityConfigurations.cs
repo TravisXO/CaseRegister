@@ -1,5 +1,6 @@
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
+using CaseRegister.Domain.Approvals;
 using CaseRegister.Domain.Certificates;
 using CaseRegister.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -63,8 +64,9 @@ internal sealed class AuthenticatorRecordConfiguration : IEntityTypeConfiguratio
 
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(record => record.UserId).OnDelete(DeleteBehavior.Restrict);
 
-        // One authenticator per account.
-        builder.HasIndex(record => record.UserId).IsUnique();
+        // One live authenticator per account. A removed one (after an admin's reset) stays as history.
+        builder.HasIndex(record => record.UserId).IsUnique().HasFilter("removed_at IS NULL").HasDatabaseName("ux_user_authenticators_live");
+        builder.HasQueryFilter(record => record.RemovedAt == null);
 
         builder.Property(record => record.EncryptedKey).IsRequired();
     }
@@ -150,5 +152,52 @@ internal sealed class PractisingCertificateConfiguration : IEntityTypeConfigurat
         builder.HasIndex(certificate => new { certificate.UserId, certificate.ValidFrom });
 
         builder.Ignore(certificate => certificate.IsVerified);
+    }
+}
+
+internal sealed class PendingActionConfiguration : IEntityTypeConfiguration<PendingAction>
+{
+    public void Configure(EntityTypeBuilder<PendingAction> builder)
+    {
+        builder.ToTable("pending_actions", table =>
+        {
+            // An action is aimed at exactly one account or one agency, never both and never neither.
+            table.HasCheckConstraint("ck_pending_actions_one_target", "(target_user_id IS NULL) <> (target_agency_id IS NULL)");
+        });
+
+        builder.Property(action => action.Type).HasConversion<string>().HasMaxLength(40).IsRequired();
+        builder.Property(action => action.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+
+        // Nothing is hard-deleted, so people and agencies with proposals about them cannot be removed from under them.
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(action => action.TargetUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Agency>().WithMany().HasForeignKey(action => action.TargetAgencyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(action => action.ProposedByUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(action => action.DecidedByUserId).OnDelete(DeleteBehavior.Restrict);
+
+        builder.Ignore(action => action.IsIntact);
+
+        builder.Property(action => action.Payload).HasMaxLength(2000).IsRequired();
+
+        // SHA-256 as hex: 64 characters.
+        builder.Property(action => action.PayloadHash).HasMaxLength(64).IsRequired();
+        builder.Property(action => action.Reason).HasMaxLength(ApprovalRules.MaximumReasonLength).IsRequired();
+        builder.Property(action => action.DecisionReason).HasMaxLength(ApprovalRules.MaximumReasonLength);
+        builder.Property(action => action.LastRefusalCode).HasMaxLength(50);
+        builder.Property(action => action.LastRefusalMessage).HasMaxLength(500);
+
+        builder.Property(action => action.ProposedAt).HasColumnType("timestamp with time zone");
+        builder.Property(action => action.ExpiresAt).HasColumnType("timestamp with time zone");
+        builder.Property(action => action.DecidedAt).HasColumnType("timestamp with time zone");
+        builder.Property(action => action.LastRefusedAt).HasColumnType("timestamp with time zone");
+
+        // One pending proposal per action type and target. NULLs count as equal (the other target column is
+        // always NULL), and a decided or lapsed proposal no longer counts, so the same thing can be proposed again.
+        builder.HasIndex(action => new { action.Type, action.TargetUserId, action.TargetAgencyId })
+            .IsUnique()
+            .AreNullsDistinct(false)
+            .HasFilter("status = 'Pending'")
+            .HasDatabaseName("ux_pending_actions_one_pending_per_target");
+
+        builder.HasIndex(action => new { action.Status, action.ExpiresAt });
     }
 }

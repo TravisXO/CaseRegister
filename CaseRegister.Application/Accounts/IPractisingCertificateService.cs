@@ -43,24 +43,14 @@ public enum AddCertificateOutcome
 
 public sealed record AddCertificateResult(AddCertificateOutcome Outcome, Guid? CertificateId = null, IReadOnlyList<string>? Errors = null);
 
-public enum VerifyCertificateOutcome
-{
-    Verified,
-    NotFound,
-
-    /// <summary>The person verifying is not an admin.</summary>
-    NotAnAdmin,
-    AlreadyVerified,
-}
-
-/// <summary>Practising certificates: adding a new one, checking one, and asking whether a member has a current one.</summary>
+/// <summary>
+/// Practising certificates: adding a new one, listing them, and asking whether a member has a current one.
+/// Verifying one is not here: it grants access, so it goes through the two-admin approval process.
+/// </summary>
 public interface IPractisingCertificateService
 {
     /// <summary>Adds a new certificate, unverified. Existing ones are never changed: this is a new row in the history.</summary>
     Task<AddCertificateResult> AddAsync(Guid userId, AddPractisingCertificateCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default);
-
-    /// <summary>Marks a certificate verified. Only an admin may. The endpoints for this come with maker-checker.</summary>
-    Task<VerifyCertificateOutcome> VerifyAsync(Guid certificateId, Guid verifiedByUserId, CancellationToken cancellationToken = default);
 
     /// <summary>A member's certificates, newest first.</summary>
     Task<IReadOnlyList<CertificateInfo>> ListAsync(Guid userId, CancellationToken cancellationToken = default);

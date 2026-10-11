@@ -147,6 +147,18 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("DELETE", "api/auth/sessions/{id:guid}", "two-factor"),
             new("POST", "api/auth/sign-in", "anonymous"),
             new("POST", "api/auth/sign-out", "SignedIn"),
+
+            // Admin actions: each has the named policy for what it does, and nothing is left to a bare [Authorize].
+            new("GET", "api/admin/pending-actions", "ViewPendingActions"),
+            new("GET", "api/admin/pending-actions/{id:guid}", "ViewPendingActions"),
+            new("POST", "api/admin/pending-actions", "ProposeAdminActions"),
+            new("POST", "api/admin/pending-actions/{id:guid}/confirm", "ConfirmAdminActions"),
+            new("POST", "api/admin/pending-actions/{id:guid}/reject", "ConfirmAdminActions"),
+            new("POST", "api/admin/pending-actions/{id:guid}/withdraw", "ProposeAdminActions"),
+            new("POST", "api/admin/users/{id:guid}/suspend", "RestrictAccess"),
+            new("POST", "api/admin/users/{id:guid}/end-sessions", "RestrictAccess"),
+            new("POST", "api/admin/agencies/{id:guid}/suspend", "RestrictAccess"),
+
             new("GET", "api/me", "two-factor"),
             new("GET", "api/me/practising-certificates", "two-factor"),
             new("POST", "api/me/practising-certificates", "two-factor"),

@@ -402,7 +402,8 @@ public class RoleAssignmentServiceTests(PostgresFixture postgres)
         var entry = Assert.Single(await world.Factory.WithDbAsync(db => db.AuditLog.AsNoTracking().Where(record => record.Action == "RolesChanged").ToListAsync()));
         Assert.Equal(admin.Id, entry.ActorUserId);
         Assert.Equal(world.Member.Id.ToString(), entry.Subject);
-        Assert.Equal("added: AgencyComplianceOfficer,RegisteredAgent; removed: ", entry.Detail);
+        // Before and after are there too, so a change can be read without looking anything else up.
+        Assert.Equal("added: AgencyComplianceOfficer,RegisteredAgent; removed: ; before: ; after: RegisteredAgent,AgencyComplianceOfficer", entry.Detail);
         Assert.DoesNotContain("member@example.test", entry.Detail, StringComparison.Ordinal);
     }
 

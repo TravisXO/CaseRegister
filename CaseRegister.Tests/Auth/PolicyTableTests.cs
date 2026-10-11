@@ -87,7 +87,7 @@ public class PolicyTableTests(PostgresFixture postgres)
 
         var actual = await TableAsync(people);
 
-        Assert.Equal(44, actual.Count); // 4 roles by 11 policies
+        Assert.Equal(60, actual.Count); // 4 roles by 15 policies
         Assert.Equal(Expected((role, capability) => ExpectedMatrix.Allows(capability, role)), actual);
     }
 
@@ -248,6 +248,28 @@ public class PolicyTableTests(PostgresFixture postgres)
 
         Assert.Equal(agentCanUse.Order(StringComparer.Ordinal), withRequirement.Order(StringComparer.Ordinal));
         Assert.Equal(9, withRequirement.Count);
+    }
+
+    [Fact]
+    public async Task The_active_agency_requirement_sits_next_to_the_certificate_requirement_on_exactly_the_same_policies()
+    {
+        await using var factory = await ApiFactory.CreateAsync(postgres);
+        var provider = factory.Services.GetRequiredService<IAuthorizationPolicyProvider>();
+
+        foreach (var name in ExpectedMatrix.PolicyNames)
+        {
+            var policy = (await provider.GetPolicyAsync(name))!;
+
+            Assert.Equal(
+                policy.Requirements.OfType<HasCurrentPractisingCertificateRequirement>().Any(),
+                policy.Requirements.OfType<ActiveAgencyRequirement>().Any());
+        }
+
+        // And the admin actions, which no agent can use, have neither.
+        foreach (var name in new[] { "ViewPendingActions", "ProposeAdminActions", "ConfirmAdminActions", "RestrictAccess" })
+        {
+            Assert.DoesNotContain((await provider.GetPolicyAsync(name))!.Requirements, requirement => requirement is ActiveAgencyRequirement);
+        }
     }
 
     // --- Through the real session -----------------------------------------------------------------

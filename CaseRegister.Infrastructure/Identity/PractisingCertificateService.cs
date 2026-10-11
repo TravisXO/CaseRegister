@@ -71,48 +71,6 @@ internal sealed class PractisingCertificateService(
         return new AddCertificateResult(AddCertificateOutcome.Added, certificate.Id);
     }
 
-    public async Task<VerifyCertificateOutcome> VerifyAsync(Guid certificateId, Guid verifiedByUserId, CancellationToken cancellationToken = default)
-    {
-        // Verifying is an admin's job. Checked here, because there is no endpoint (and so no policy) in front of it yet.
-        var verifier = await users.FindByIdAsync(verifiedByUserId.ToString());
-        if (verifier is null || !await users.IsInRoleAsync(verifier, nameof(Role.Admin)))
-        {
-            return VerifyCertificateOutcome.NotAnAdmin;
-        }
-
-        var certificate = await db.PractisingCertificates.SingleOrDefaultAsync(c => c.Id == certificateId, cancellationToken);
-        if (certificate is null)
-        {
-            return VerifyCertificateOutcome.NotFound;
-        }
-
-        if (certificate.IsVerified)
-        {
-            return VerifyCertificateOutcome.AlreadyVerified;
-        }
-
-        certificate.Verify(verifiedByUserId, timeProvider.GetUtcNow());
-
-        try
-        {
-            await db.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            return VerifyCertificateOutcome.AlreadyVerified; // verified by someone else at the same moment
-        }
-
-        await audit.WriteAsync(
-            new AuditEntry(
-                AuditAction.PractisingCertificateVerified,
-                verifiedByUserId,
-                Subject: certificate.Number.ToString(),
-                Detail: $"member {certificate.UserId}"),
-            cancellationToken);
-
-        return VerifyCertificateOutcome.Verified;
-    }
-
     public async Task<IReadOnlyList<CertificateInfo>> ListAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var today = MembershipCalendar.Today(timeProvider);

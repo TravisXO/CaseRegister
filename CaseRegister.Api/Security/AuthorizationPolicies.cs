@@ -44,10 +44,10 @@ public static class AuthorizationPolicies
                 // ...plus a role the matrix gives this action to...
                 policy.AddRequirements(new CapabilityRequirement(capability));
 
-                // ...and, if an agent role can do it, a current verified practising certificate.
+                // ...and, if an agent role can do it, a current verified practising certificate and an active agency.
                 if (PermissionMatrix.IncludesAgentRole(capability))
                 {
-                    policy.AddRequirements(new HasCurrentPractisingCertificateRequirement());
+                    policy.AddRequirements(new HasCurrentPractisingCertificateRequirement(), new ActiveAgencyRequirement());
                 }
             });
         }
@@ -58,6 +58,7 @@ public static class AuthorizationPolicies
         // Scoped: the certificate check asks the database, through request-scoped services.
         services.AddScoped<IAuthorizationHandler, CapabilityHandler>();
         services.AddScoped<IAuthorizationHandler, HasCurrentPractisingCertificateHandler>();
+        services.AddScoped<IAuthorizationHandler, ActiveAgencyHandler>();
         services.AddScoped<IAuthorizationHandler, OwnRecordHandler>();
         services.AddScoped<IAuthorizationHandler, SameAgencyHandler>();
         services.AddScoped<IAuthorizationHandler, CapabilityScopeHandler>();

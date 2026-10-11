@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CaseRegister.Application.Accounts;
+using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Authorization;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
@@ -18,7 +19,7 @@ namespace CaseRegister.Tests.Auth;
 [Collection(PostgresTestGroup.Name)]
 public class PractisingCertificateFlowTests(PostgresFixture postgres)
 {
-    private sealed record World(ApiFactory Factory, Agency Agency, ApplicationUser Agent, ApplicationUser Admin) : IAsyncDisposable
+    private sealed record World(ApiFactory Factory, Agency Agency, ApplicationUser Agent, ApplicationUser Admin, ApplicationUser Checker) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Factory.DisposeAsync();
 
@@ -36,23 +37,22 @@ public class PractisingCertificateFlowTests(PostgresFixture postgres)
             new { certificateNumber = number, validFrom = $"{year}-01-01", validTo = $"{year}-12-31" };
     }
 
-    /// <summary>An agent with the registered-agent role and no certificate, and an admin who can verify.</summary>
+    /// <summary>An agent with the registered-agent role and no certificate, and two admins, who verify together (one proposes, the other confirms).</summary>
     private async Task<World> WorldAsync()
     {
         var factory = await ApiFactory.CreateAsync(postgres);
         var agency = await factory.CreateAgencyAsync();
         var agent = await factory.CreateMemberAsync("agent@example.test", agency, [Role.RegisteredAgent], currentCertificate: false);
         var admin = await factory.CreateStaffAsync("admin@example.test", Role.Admin);
+        var checker = await factory.CreateStaffAsync("checker@example.test", Role.Admin);
 
-        return new World(factory, agency, agent, admin);
+        return new World(factory, agency, agent, admin, checker);
     }
 
-    private static async Task<VerifyCertificateOutcome> VerifyAsync(ApiFactory factory, Guid certificateId, Guid byUserId)
-    {
-        using var scope = factory.Services.CreateScope();
 
-        return await scope.ServiceProvider.GetRequiredService<IPractisingCertificateService>().VerifyAsync(certificateId, byUserId);
-    }
+    /// <summary>Verifying takes two admins: the world's admin proposes and the checker confirms, so the checker is the one recorded.</summary>
+    private static Task<CaseRegister.Application.Approvals.PendingActionView> VerifyAsync(World world, Guid certificateId) =>
+        world.Factory.ProposeAndConfirmAsync(world.Admin, world.Checker, Proposals.VerifyCertificate(world.Agent, certificateId));
 
     private static async Task<bool> HasCurrentAsync(ApiFactory factory, Guid userId)
     {
@@ -255,7 +255,7 @@ public class PractisingCertificateFlowTests(PostgresFixture postgres)
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/probe/can/RunPreDealCheck")).StatusCode);
 
-        Assert.Equal(VerifyCertificateOutcome.Verified, await VerifyAsync(world.Factory, id, world.Admin.Id));
+        await VerifyAsync(world, id);
 
         // The same session, no new sign-in: the certificate is checked afresh on every request.
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/probe/can/RunPreDealCheck")).StatusCode);
@@ -273,42 +273,52 @@ public class PractisingCertificateFlowTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task An_admin_verifies_a_certificate_and_it_records_who_and_when()
+    public async Task Two_admins_verify_a_certificate_and_it_records_the_confirming_admin_and_when()
     {
         await using var world = await WorldAsync();
         var id = await AddUnverifiedAsync(world);
 
-        var outcome = await VerifyAsync(world.Factory, id, world.Admin.Id);
+        await VerifyAsync(world, id);
 
-        Assert.Equal(VerifyCertificateOutcome.Verified, outcome);
         var stored = await world.Factory.WithDbAsync(db => db.PractisingCertificates.AsNoTracking().SingleAsync(c => c.Id == id));
         Assert.True(stored.IsVerified);
-        Assert.Equal(world.Admin.Id, stored.VerifiedByUserId);
+        Assert.Equal(world.Checker.Id, stored.VerifiedByUserId); // the second admin, who made it true
         Assert.True((world.Factory.Clock.GetUtcNow() - stored.VerifiedAt!.Value).Duration() < TimeSpan.FromMilliseconds(1));
         Assert.True(await HasCurrentAsync(world.Factory, world.Agent.Id));
     }
 
     [Fact]
-    public async Task Only_an_admin_can_verify()
+    public async Task Only_an_admin_can_propose_or_confirm_a_verification()
     {
         await using var world = await WorldAsync();
         var id = await AddUnverifiedAsync(world);
         var reviewer = await world.Factory.CreateStaffAsync("reviewer@example.test", Role.CaseReviewer);
         var officer = await world.Factory.CreateMemberAsync("officer@example.test", world.Agency, [Role.RegisteredAgent, Role.AgencyComplianceOfficer]);
+        var command = Proposals.VerifyCertificate(world.Agent, id);
 
-        Assert.Equal(VerifyCertificateOutcome.NotAnAdmin, await VerifyAsync(world.Factory, id, world.Agent.Id)); // the owner
-        Assert.Equal(VerifyCertificateOutcome.NotAnAdmin, await VerifyAsync(world.Factory, id, officer.Id));
-        Assert.Equal(VerifyCertificateOutcome.NotAnAdmin, await VerifyAsync(world.Factory, id, reviewer.Id));
-        Assert.Equal(VerifyCertificateOutcome.NotAnAdmin, await VerifyAsync(world.Factory, id, Guid.NewGuid())); // nobody
+        foreach (var notAdmin in new[] { world.Agent, officer, reviewer })
+        {
+            Assert.Equal(ProposeOutcome.NotAnAdmin, (await world.Factory.ProposeAsync(notAdmin, command)).Outcome);
+        }
+
+        var proposal = await world.Factory.ProposeOkAsync(world.Admin, command);
+        foreach (var notAdmin in new[] { world.Agent, officer, reviewer })
+        {
+            Assert.Equal(ConfirmOutcome.NotAnAdmin, (await world.Factory.ConfirmAsync(notAdmin, proposal)).Outcome);
+        }
+
         Assert.False((await world.Factory.WithDbAsync(db => db.PractisingCertificates.AsNoTracking().SingleAsync(c => c.Id == id))).IsVerified);
     }
 
     [Fact]
-    public async Task Verifying_an_unknown_certificate_is_not_found()
+    public async Task Proposing_to_verify_an_unknown_certificate_is_refused()
     {
         await using var world = await WorldAsync();
 
-        Assert.Equal(VerifyCertificateOutcome.NotFound, await VerifyAsync(world.Factory, Guid.NewGuid(), world.Admin.Id));
+        var result = await world.Factory.ProposeAsync(world.Admin, Proposals.VerifyCertificate(world.Agent, Guid.NewGuid()));
+
+        Assert.Equal(ProposeOutcome.Refused, result.Outcome);
+        Assert.Contains(result.Problems!, problem => problem.Code == "CertificateNotFound");
     }
 
     [Fact]
@@ -316,13 +326,14 @@ public class PractisingCertificateFlowTests(PostgresFixture postgres)
     {
         await using var world = await WorldAsync();
         var id = await AddUnverifiedAsync(world);
-        var secondAdmin = await world.Factory.CreateStaffAsync("admin2@example.test", Role.Admin);
-        await VerifyAsync(world.Factory, id, world.Admin.Id);
+        await VerifyAsync(world, id);
 
-        Assert.Equal(VerifyCertificateOutcome.AlreadyVerified, await VerifyAsync(world.Factory, id, secondAdmin.Id));
+        var again = await world.Factory.ProposeAsync(world.Checker, Proposals.VerifyCertificate(world.Agent, id));
 
+        Assert.Equal(ProposeOutcome.Refused, again.Outcome);
+        Assert.Contains(again.Problems!, problem => problem.Code == "AlreadyVerified");
         var stored = await world.Factory.WithDbAsync(db => db.PractisingCertificates.AsNoTracking().SingleAsync(c => c.Id == id));
-        Assert.Equal(world.Admin.Id, stored.VerifiedByUserId);
+        Assert.Equal(world.Checker.Id, stored.VerifiedByUserId);
     }
 
     [Fact]
@@ -331,15 +342,15 @@ public class PractisingCertificateFlowTests(PostgresFixture postgres)
         await using var world = await WorldAsync();
         var id = await AddUnverifiedAsync(world);
 
-        await VerifyAsync(world.Factory, id, world.Admin.Id);
+        await VerifyAsync(world, id);
 
         var entry = Assert.Single(await world.Factory.WithDbAsync(db => db.AuditLog.AsNoTracking().Where(r => r.Action == "PractisingCertificateVerified").ToListAsync()));
-        Assert.Equal(world.Admin.Id, entry.ActorUserId);
+        Assert.Equal(world.Checker.Id, entry.ActorUserId);
         Assert.Contains(world.Factory.Today.Year.ToString(System.Globalization.CultureInfo.InvariantCulture), entry.Subject, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task There_is_no_endpoint_for_verifying_yet()
+    public async Task There_is_no_direct_endpoint_for_verifying()
     {
         await using var world = await WorldAsync();
         var id = await AddUnverifiedAsync(world);
@@ -383,7 +394,7 @@ public class PractisingCertificateFlowTests(PostgresFixture postgres)
         var older = await world.Factory.AddCertificateAsync(world.Agent, year - 1, verified: false);
         var newer = await world.Factory.AddCertificateAsync(world.Agent, year, verified: false);
 
-        await VerifyAsync(world.Factory, newer.Id, world.Admin.Id);
+        await VerifyAsync(world, newer.Id);
 
         var stored = await world.Factory.WithDbAsync(db => db.PractisingCertificates.AsNoTracking().ToListAsync());
         Assert.True(stored.Single(c => c.Id == newer.Id).IsVerified);

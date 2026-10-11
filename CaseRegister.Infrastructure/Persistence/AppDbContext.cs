@@ -1,5 +1,6 @@
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
+using CaseRegister.Domain.Approvals;
 using CaseRegister.Domain.Certificates;
 using CaseRegister.Infrastructure.Identity;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
@@ -26,6 +27,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<UserSession> Sessions => Set<UserSession>();
 
     public DbSet<Agency> Agencies => Set<Agency>();
+
+    public DbSet<PendingAction> PendingActions => Set<PendingAction>();
 
     public DbSet<PractisingCertificate> PractisingCertificates => Set<PractisingCertificate>();
 

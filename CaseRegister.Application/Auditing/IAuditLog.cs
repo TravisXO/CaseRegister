@@ -16,6 +16,26 @@ public enum AuditAction
     RolesChanged,
     PractisingCertificateAdded,
     PractisingCertificateVerified,
+
+    // Maker-checker: both steps of an approval, and a confirmation that was refused.
+    ActionProposed,
+    ActionConfirmed,
+    ActionRejected,
+    ActionWithdrawn,
+    ActionExpired,
+    ActionRefused,
+
+    // What an admin action did to the account or agency (by approval, or at once).
+    UserSuspended,
+    UserReactivated,
+    SessionsEnded,
+    AgencySuspended,
+    AgencyReactivated,
+    TwoFactorReset,
+
+    // Every run of the seed-admin command, whether or not it created anyone.
+    AdminSeeded,
+    AdminSeedRefused,
 }
 
 /// <param name="Action">What happened.</param>

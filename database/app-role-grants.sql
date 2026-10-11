@@ -56,14 +56,14 @@ BEGIN
 END
 $$;
 
--- Nothing is hard-deleted. Accounts, agencies, certificates, authenticators, recovery codes and lockout history are retired or
+-- Nothing is hard-deleted. Accounts, agencies, certificates, proposals, authenticators, recovery codes and lockout history are retired or
 -- marked, never removed, so the application role may not delete from them. (Sessions are the exception:
 -- ending one means deleting its row, on purpose.)
 DO $$
 DECLARE
     protected_table text;
 BEGIN
-    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events', 'agencies', 'practising_certificates']
+    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events', 'agencies', 'practising_certificates', 'pending_actions']
     LOOP
         IF to_regclass(format('public.%I', protected_table)) IS NOT NULL THEN
             EXECUTE format('REVOKE DELETE, TRUNCATE ON TABLE public.%I FROM case_register_app', protected_table);
@@ -94,6 +94,19 @@ BEGIN
     IF to_regclass('public.practising_certificates') IS NOT NULL THEN
         REVOKE UPDATE ON TABLE public.practising_certificates FROM case_register_app;
         GRANT UPDATE (verified_at, verified_by_user_id, updated_at) ON TABLE public.practising_certificates TO case_register_app;
+    END IF;
+END
+$$;
+
+-- A proposal is exactly what was proposed. Its type, target, payload, hash, reason, proposer and
+-- expiry are fixed when it is added; the application may only record its outcome. (So a confirmer
+-- can rely on the hash: nothing can change what it covers.)
+DO $$
+BEGIN
+    IF to_regclass('public.pending_actions') IS NOT NULL THEN
+        REVOKE UPDATE ON TABLE public.pending_actions FROM case_register_app;
+        GRANT UPDATE (status, decided_by_user_id, decided_at, decision_reason, last_refusal_code, last_refusal_message, last_refused_at, updated_at)
+            ON TABLE public.pending_actions TO case_register_app;
     END IF;
 END
 $$;

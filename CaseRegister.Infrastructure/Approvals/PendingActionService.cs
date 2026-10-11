@@ -1,0 +1,591 @@
+using CaseRegister.Application.Approvals;
+using CaseRegister.Application.Auditing;
+using CaseRegister.Application.Auth;
+using CaseRegister.Domain.Approvals;
+using CaseRegister.Infrastructure.Identity;
+using CaseRegister.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+namespace CaseRegister.Infrastructure.Approvals;
+
+/// <summary>
+/// The maker-checker engine. Every rule lives in <see cref="ApprovalRules"/> and the operations; this
+/// class only puts them in order: check who and what, check the current state, ask for a fresh
+/// two-factor code, then flip the proposal and apply the action in one transaction.
+/// </summary>
+internal sealed class PendingActionService(
+    AppDbContext db,
+    IEnumerable<IAdminOperation> operations,
+    ITwoFactorService twoFactor,
+    IAuditLog audit,
+    TimeProvider time) : IPendingActionService
+{
+    private const string OnePendingIndex = "ux_pending_actions_one_pending_per_target";
+
+    private readonly Dictionary<PendingActionType, IAdminOperation> _operations = operations.ToDictionary(operation => operation.Type);
+
+    private sealed record Actor(Guid Id, Guid? AgencyId);
+
+    private sealed record Attempt(ConfirmOutcome Outcome, IReadOnlyList<ApprovalViolation>? Problems = null, bool Repeat = false);
+
+    // --- Proposing ---------------------------------------------------------------------------------
+
+    public async Task<ProposeResult> ProposeAsync(Guid proposerId, ProposeActionCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default)
+    {
+        if (await ActorAsync(proposerId, cancellationToken) is not { } proposer)
+        {
+            return new ProposeResult(ProposeOutcome.NotAnAdmin);
+        }
+
+        var validation = new ProposeActionCommandValidator().Validate(command);
+        if (!validation.IsValid)
+        {
+            return new ProposeResult(ProposeOutcome.Invalid, Problems: [.. validation.Errors.Select(error => new ApprovalViolation("Invalid", error.ErrorMessage))]);
+        }
+
+        var self = ApprovalRules.CheckProposal(proposer.Id, proposer.AgencyId, command.TargetUserId, command.TargetAgencyId);
+        if (self.Count > 0)
+        {
+            return new ProposeResult(ProposeOutcome.Refused, Problems: self);
+        }
+
+        if (!await TargetExistsAsync(command.TargetUserId, command.TargetAgencyId, cancellationToken))
+        {
+            return new ProposeResult(ProposeOutcome.TargetNotFound);
+        }
+
+        // Granting needs two admins whoever the target is; taking away needs two only when the target is an admin.
+        var targetIsAdmin = command.TargetUserId is { } userId && await AdminCensus.HoldsAdminRoleAsync(db, userId, cancellationToken);
+        if (!ApprovalRules.RequiresTwoAdmins(command.Type, targetIsAdmin))
+        {
+            return new ProposeResult(ProposeOutcome.NoApprovalNeeded);
+        }
+
+        // Only a proposal that could be confirmed right now is accepted. The same checks run again at confirmation.
+        var payload = ActionPayloads.Build(command);
+        var plan = await _operations[command.Type].PlanAsync(new OperationContext(proposer.Id, command.TargetUserId, command.TargetAgencyId, payload), cancellationToken);
+        if (plan.Problems.Count > 0)
+        {
+            return new ProposeResult(ProposeOutcome.Refused, Problems: plan.Problems);
+        }
+
+        var now = time.GetUtcNow();
+        var action = PendingAction.Propose(command.Type, command.TargetUserId, command.TargetAgencyId, payload, command.Reason, proposer.Id, now);
+        var outcome = ProposeOutcome.Proposed;
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            outcome = ProposeOutcome.Proposed;
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            // A proposal whose 72 hours ran out no longer counts as pending, so it does not block a new one.
+            var existing = await db.PendingActions.SingleOrDefaultAsync(
+                other => other.Type == command.Type
+                    && other.TargetUserId == command.TargetUserId
+                    && other.TargetAgencyId == command.TargetAgencyId
+                    && other.Status == PendingActionStatus.Pending,
+                cancellationToken);
+
+            if (existing is not null)
+            {
+                if (existing.EffectiveStatus(now) != PendingActionStatus.Expired)
+                {
+                    outcome = ProposeOutcome.AlreadyPending;
+                    return;
+                }
+
+                existing.Expire(now);
+                await db.SaveChangesAsync(cancellationToken);
+                await WriteExpiredAsync(existing, cancellationToken);
+            }
+
+            db.PendingActions.Add(action);
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception) when (exception.InnerException is PostgresException { ConstraintName: OnePendingIndex })
+            {
+                // Two admins proposed the same thing at the same moment: the database lets only one through.
+                outcome = ProposeOutcome.AlreadyPending;
+                return;
+            }
+
+            await audit.WriteAsync(
+                new AuditEntry(
+                    AuditAction.ActionProposed,
+                    proposer.Id,
+                    Subject: TargetOf(action),
+                    IpAddress: remoteIpAddress,
+                    Detail: AuditText.Fit($"{action.Id}; {action.Type}; before: {plan.Before}; after: {plan.After}; hash {action.PayloadHash[..12]}; reason: {action.Reason}")),
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+        });
+
+        return outcome == ProposeOutcome.Proposed
+            ? new ProposeResult(outcome, await ViewAsync(action.Id, cancellationToken))
+            : new ProposeResult(outcome);
+    }
+
+    // --- Reading -----------------------------------------------------------------------------------
+
+    public async Task<IReadOnlyList<PendingActionView>> ListAsync(bool includeClosed, CancellationToken cancellationToken = default)
+    {
+        var now = time.GetUtcNow();
+        var query = db.PendingActions.AsNoTracking();
+        if (!includeClosed)
+        {
+            query = query.Where(action => action.Status == PendingActionStatus.Pending);
+        }
+
+        var rows = await query.OrderByDescending(action => action.ProposedAt).ToListAsync(cancellationToken);
+
+        // Expiry is worked out here, from the time: a pending row past its 72 hours is shown as expired and,
+        // unless the closed ones were asked for, left out.
+        var shown = includeClosed ? rows : rows.Where(action => action.EffectiveStatus(now) == PendingActionStatus.Pending).ToList();
+
+        return await ToViewsAsync(shown, now, cancellationToken);
+    }
+
+    public async Task<PendingActionView?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await ViewAsync(id, cancellationToken);
+
+    // --- Confirming --------------------------------------------------------------------------------
+
+    public async Task<ConfirmResult> ConfirmAsync(Guid id, Guid confirmerId, ConfirmActionCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default)
+    {
+        if (await ActorAsync(confirmerId, cancellationToken) is not { } confirmer)
+        {
+            return new ConfirmResult(ConfirmOutcome.NotAnAdmin);
+        }
+
+        var action = await db.PendingActions.AsNoTracking().SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
+        if (action is null)
+        {
+            return new ConfirmResult(ConfirmOutcome.NotFound);
+        }
+
+        // A repeat of a confirmation that already went through gets the same answer and does nothing more.
+        if (IsRepeat(action, confirmer.Id, command.PayloadHash))
+        {
+            return new ConfirmResult(ConfirmOutcome.Confirmed, await ViewAsync(id, cancellationToken), WasRepeat: true);
+        }
+
+        // The confirmer approves exactly what they saw, or nothing.
+        if (!action.HashMatches(command.PayloadHash))
+        {
+            return new ConfirmResult(ConfirmOutcome.HashMismatch);
+        }
+
+        var now = time.GetUtcNow();
+        var people = ApprovalRules.CheckDecision(action, confirmer.Id, confirmer.AgencyId, now);
+        if (people.Count > 0)
+        {
+            return await RefusedForPeopleAsync(action, people, cancellationToken);
+        }
+
+        // The state of things now, checked before a code is spent on it.
+        var (stateProblems, plan) = await CheckStateAsync(action, confirmer.Id, cancellationToken);
+        if (plan is null)
+        {
+            return await RecordRefusalAsync(id, confirmer.Id, stateProblems, remoteIpAddress, cancellationToken);
+        }
+
+        // A signed-in session is not enough: a fresh code, which also proves the confirmer is the one at the keyboard.
+        var step = await twoFactor.VerifyCodeAsync(confirmer.Id, command.TwoFactorCode, remoteIpAddress, cancellationToken);
+        if (step.Outcome == TwoFactorOutcome.RateLimited)
+        {
+            return new ConfirmResult(ConfirmOutcome.RateLimited, RetryAfter: step.RetryAfter);
+        }
+
+        if (step.Outcome != TwoFactorOutcome.Succeeded)
+        {
+            return new ConfirmResult(ConfirmOutcome.CodeRejected);
+        }
+
+        var attempt = await ApplyAsync(action, confirmer, command.PayloadHash, remoteIpAddress, cancellationToken);
+
+        return attempt.Outcome switch
+        {
+            ConfirmOutcome.Confirmed => new ConfirmResult(ConfirmOutcome.Confirmed, await ViewAsync(id, cancellationToken), WasRepeat: attempt.Repeat),
+            ConfirmOutcome.Refused => await RecordRefusalAsync(id, confirmer.Id, attempt.Problems!, remoteIpAddress, cancellationToken),
+            ConfirmOutcome.Expired or ConfirmOutcome.NotAllowed or ConfirmOutcome.NotPending =>
+                await RefusedForPeopleAsync(action, attempt.Problems ?? [], cancellationToken, attempt.Outcome),
+            _ => new ConfirmResult(attempt.Outcome, Problems: attempt.Problems),
+        };
+    }
+
+    /// <summary>
+    /// The decision itself, in one transaction: flip the proposal (the optimistic concurrency check that lets
+    /// only one of two simultaneous confirmations through), then apply the action, then audit, then commit.
+    /// </summary>
+    private async Task<Attempt> ApplyAsync(PendingAction seen, Actor confirmer, string quotedHash, string? remoteIpAddress, CancellationToken cancellationToken)
+    {
+        Attempt? result = null;
+        var strategy = db.Database.CreateExecutionStrategy();
+
+        try
+        {
+            await strategy.ExecuteAsync(async () =>
+            {
+                result = null;
+                db.ChangeTracker.Clear();
+                await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+                // Anything that can lower the number of admins goes one at a time, so two cannot both pass the count.
+                if (ApprovalRules.CanReduceAdmins(seen.Type))
+                {
+                    await AdminCensus.LockAsync(db, cancellationToken);
+                }
+
+                var action = await db.PendingActions.SingleAsync(a => a.Id == seen.Id, cancellationToken);
+                var now = time.GetUtcNow();
+
+                // Someone may have decided it between our first look and now.
+                if (IsRepeat(action, confirmer.Id, quotedHash))
+                {
+                    result = new Attempt(ConfirmOutcome.Confirmed, Repeat: true);
+                    return;
+                }
+
+                var people = ApprovalRules.CheckDecision(action, confirmer.Id, confirmer.AgencyId, now);
+                if (people.Count > 0)
+                {
+                    result = new Attempt(ClassifyPeopleProblems(people), people);
+                    return;
+                }
+
+                // Checked again under the lock, against the state as it is at this moment.
+                var (stateProblems, plan) = await CheckStateAsync(action, confirmer.Id, cancellationToken);
+                if (plan is null)
+                {
+                    result = new Attempt(ConfirmOutcome.Refused, stateProblems);
+                    return;
+                }
+
+                action.Confirm(confirmer.Id, now);
+                await db.SaveChangesAsync(cancellationToken); // fails if anyone else decided it since we read it
+
+                await plan.ApplyAsync(cancellationToken);
+
+                await audit.WriteAsync(
+                    new AuditEntry(
+                        AuditAction.ActionConfirmed,
+                        confirmer.Id,
+                        Subject: TargetOf(action),
+                        IpAddress: remoteIpAddress,
+                        Detail: AuditText.Fit($"{action.Id}; {action.Type}; proposed by {action.ProposedByUserId}; before: {plan.Before}; after: {plan.After}")),
+                    cancellationToken);
+
+                await audit.WriteAsync(
+                    new AuditEntry(
+                        plan.Effect,
+                        confirmer.Id,
+                        Subject: plan.EffectSubject ?? TargetOf(action),
+                        IpAddress: remoteIpAddress,
+                        Detail: AuditText.Fit($"approved action {action.Id}; before: {plan.Before}; after: {plan.After}")),
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                result = new Attempt(ConfirmOutcome.Confirmed);
+            });
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Somebody changed the proposal (or the thing it applies to) at the same moment. Nothing of ours was kept.
+            db.ChangeTracker.Clear();
+            var fresh = await db.PendingActions.AsNoTracking().SingleAsync(a => a.Id == seen.Id, cancellationToken);
+
+            result = IsRepeat(fresh, confirmer.Id, quotedHash)
+                ? new Attempt(ConfirmOutcome.Confirmed, Repeat: true)
+                : fresh.Status == PendingActionStatus.Pending
+                    ? new Attempt(ConfirmOutcome.Refused, [new ApprovalViolation("ChangedMeanwhile", "Something changed while this was being applied. Nothing was done; check it and confirm again.")])
+                    : new Attempt(ConfirmOutcome.NotPending, [new ApprovalViolation(ApprovalRules.NotPending, $"This proposal is already {fresh.Status.ToString().ToLowerInvariant()}.")]);
+        }
+
+        return result!;
+    }
+
+    // --- Rejecting and withdrawing -----------------------------------------------------------------
+
+    public Task<DecisionResult> RejectAsync(Guid id, Guid rejecterId, string reason, string? remoteIpAddress, CancellationToken cancellationToken = default) =>
+        CloseAsync(id, rejecterId, reason, remoteIpAddress, withdraw: false, cancellationToken);
+
+    public Task<DecisionResult> WithdrawAsync(Guid id, Guid proposerId, string reason, string? remoteIpAddress, CancellationToken cancellationToken = default) =>
+        CloseAsync(id, proposerId, reason, remoteIpAddress, withdraw: true, cancellationToken);
+
+    private async Task<DecisionResult> CloseAsync(Guid id, Guid actorId, string reason, string? remoteIpAddress, bool withdraw, CancellationToken cancellationToken)
+    {
+        if (await ActorAsync(actorId, cancellationToken) is not { } actor)
+        {
+            return new DecisionResult(DecisionOutcome.NotAnAdmin);
+        }
+
+        if (ApprovalRules.CheckReason(reason) is { } badReason)
+        {
+            return new DecisionResult(DecisionOutcome.Invalid, Problems: [badReason]);
+        }
+
+        db.ChangeTracker.Clear();
+        var action = await db.PendingActions.SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
+        if (action is null)
+        {
+            return new DecisionResult(DecisionOutcome.NotFound);
+        }
+
+        var now = time.GetUtcNow();
+
+        // Withdrawing is the proposer's own act; rejecting is a different admin's, and never about themselves.
+        List<ApprovalViolation> problems = [.. withdraw ? ApprovalRules.CheckOpen(action, now) : ApprovalRules.CheckDecision(action, actor.Id, actor.AgencyId, now)];
+        if (withdraw && actor.Id != action.ProposedByUserId)
+        {
+            problems.Add(new ApprovalViolation("NotProposer", "Only the admin who proposed this can withdraw it."));
+        }
+
+        if (problems.Count > 0)
+        {
+            var outcome = ClassifyPeopleProblems(problems) switch
+            {
+                ConfirmOutcome.Expired => DecisionOutcome.Expired,
+                ConfirmOutcome.NotPending => DecisionOutcome.NotPending,
+                _ => DecisionOutcome.NotAllowed,
+            };
+
+            if (outcome == DecisionOutcome.Expired)
+            {
+                await PersistExpiryAsync(id, cancellationToken);
+            }
+
+            return new DecisionResult(outcome, Problems: problems);
+        }
+
+        var before = $"status: {action.Status}";
+        if (withdraw)
+        {
+            action.Withdraw(actor.Id, now, reason);
+        }
+        else
+        {
+            action.Reject(actor.Id, now, reason);
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new DecisionResult(DecisionOutcome.NotPending, Problems: [new ApprovalViolation(ApprovalRules.NotPending, "This proposal was decided at the same moment.")]);
+        }
+
+        await audit.WriteAsync(
+            new AuditEntry(
+                withdraw ? AuditAction.ActionWithdrawn : AuditAction.ActionRejected,
+                actor.Id,
+                Subject: TargetOf(action),
+                IpAddress: remoteIpAddress,
+                Detail: AuditText.Fit($"{action.Id}; {action.Type}; {before} -> status: {action.Status}; nothing was applied; reason: {action.DecisionReason}")),
+            cancellationToken);
+
+        return new DecisionResult(DecisionOutcome.Done, await ViewAsync(id, cancellationToken));
+    }
+
+    // --- Helpers -----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Everything about the current state that must hold for a confirmation to go ahead: the proposal is
+    /// what was proposed, the people involved are still active admins, and the operation itself is still
+    /// possible (role rules, the target's status, the two-admin minimum). Every problem is reported, not just the first.
+    /// The plan is null if there is any problem.
+    /// </summary>
+    private async Task<(IReadOnlyList<ApprovalViolation> Problems, OperationPlan? Plan)> CheckStateAsync(PendingAction action, Guid confirmerId, CancellationToken cancellationToken)
+    {
+        // Stored hash against the stored fields. If someone changed the proposal behind the application's back, nothing is applied.
+        if (!action.IsIntact)
+        {
+            return ([new ApprovalViolation("ProposalTampered", "This proposal no longer matches its hash, so it will not be applied.")], null);
+        }
+
+        List<ApprovalViolation> problems = [];
+
+        if (!await AdminCensus.IsActiveAdminAsync(db, action.ProposedByUserId, cancellationToken))
+        {
+            problems.Add(new ApprovalViolation("ProposerNoLongerAdmin", "The admin who proposed this is no longer an active admin."));
+        }
+
+        if (!await AdminCensus.IsActiveAdminAsync(db, confirmerId, cancellationToken))
+        {
+            problems.Add(new ApprovalViolation("ConfirmerNoLongerAdmin", "You are no longer an active admin."));
+        }
+
+        var plan = await _operations[action.Type].PlanAsync(ContextOf(action, confirmerId), cancellationToken);
+        problems.AddRange(plan.Problems);
+
+        return (problems, problems.Count == 0 ? plan : null);
+    }
+
+    private static bool IsRepeat(PendingAction action, Guid confirmerId, string quotedHash) =>
+        action.Status == PendingActionStatus.Confirmed && action.DecidedByUserId == confirmerId && action.HashMatches(quotedHash);
+
+    private static ConfirmOutcome ClassifyPeopleProblems(IReadOnlyList<ApprovalViolation> problems) =>
+        problems.Any(problem => problem.Code == ApprovalRules.Expired) ? ConfirmOutcome.Expired
+        : problems.Any(problem => problem.Code == ApprovalRules.NotPending) ? ConfirmOutcome.NotPending
+        : ConfirmOutcome.NotAllowed;
+
+    private async Task<ConfirmResult> RefusedForPeopleAsync(
+        PendingAction action,
+        IReadOnlyList<ApprovalViolation> problems,
+        CancellationToken cancellationToken,
+        ConfirmOutcome? outcome = null)
+    {
+        var kind = outcome ?? ClassifyPeopleProblems(problems);
+        if (kind == ConfirmOutcome.Expired)
+        {
+            await PersistExpiryAsync(action.Id, cancellationToken);
+        }
+
+        return new ConfirmResult(kind, Problems: problems);
+    }
+
+    /// <summary>Leaves the proposal pending, and writes down why this confirmation was refused.</summary>
+    private async Task<ConfirmResult> RecordRefusalAsync(Guid id, Guid byUserId, IReadOnlyList<ApprovalViolation> problems, string? remoteIpAddress, CancellationToken cancellationToken)
+    {
+        db.ChangeTracker.Clear();
+        var action = await db.PendingActions.SingleAsync(a => a.Id == id, cancellationToken);
+
+        if (action.Status == PendingActionStatus.Pending)
+        {
+            action.RecordRefusal(problems[0], time.GetUtcNow());
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                db.ChangeTracker.Clear(); // decided at the same moment; the refusal is still reported below
+            }
+        }
+
+        await audit.WriteAsync(
+            new AuditEntry(
+                AuditAction.ActionRefused,
+                byUserId,
+                Subject: TargetOf(action),
+                IpAddress: remoteIpAddress,
+                Detail: AuditText.Fit($"{action.Id}; {action.Type}; confirmation refused, still pending: {string.Join(", ", problems.Select(problem => problem.Code))}")),
+            cancellationToken);
+
+        return new ConfirmResult(ConfirmOutcome.Refused, await ViewAsync(id, cancellationToken), problems);
+    }
+
+    /// <summary>Writes down that a proposal's time ran out.</summary>
+    private async Task PersistExpiryAsync(Guid id, CancellationToken cancellationToken)
+    {
+        db.ChangeTracker.Clear();
+        var action = await db.PendingActions.SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
+        if (action is null || action.Status != PendingActionStatus.Pending)
+        {
+            return;
+        }
+
+        action.Expire(time.GetUtcNow());
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await WriteExpiredAsync(action, cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            db.ChangeTracker.Clear(); // someone else recorded it first
+        }
+    }
+
+    private Task WriteExpiredAsync(PendingAction action, CancellationToken cancellationToken) =>
+        audit.WriteAsync(
+            new AuditEntry(
+                AuditAction.ActionExpired,
+                ActorUserId: null,
+                Subject: TargetOf(action),
+                Detail: $"{action.Id}; {action.Type}; not confirmed within {ApprovalRules.Lifetime.TotalHours:0} hours; nothing was applied"),
+            cancellationToken);
+
+    private static OperationContext ContextOf(PendingAction action, Guid actorId) =>
+        new(actorId, action.TargetUserId, action.TargetAgencyId, action.Payload);
+
+    private static string TargetOf(PendingAction action) => (action.TargetUserId ?? action.TargetAgencyId)!.Value.ToString();
+
+    private async Task<Actor?> ActorAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        if (!await AdminCensus.IsActiveAdminAsync(db, userId, cancellationToken))
+        {
+            return null;
+        }
+
+        var agencyId = await db.Users.AsNoTracking().Where(user => user.Id == userId).Select(user => user.AgencyId).SingleAsync(cancellationToken);
+
+        return new Actor(userId, agencyId);
+    }
+
+    private async Task<bool> TargetExistsAsync(Guid? userId, Guid? agencyId, CancellationToken cancellationToken) =>
+        userId is { } user
+            ? await db.Users.AnyAsync(u => u.Id == user, cancellationToken)
+            : await db.Agencies.AnyAsync(a => a.Id == agencyId, cancellationToken);
+
+    private async Task<PendingActionView?> ViewAsync(Guid id, CancellationToken cancellationToken)
+    {
+        db.ChangeTracker.Clear();
+        var action = await db.PendingActions.AsNoTracking().SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
+
+        return action is null ? null : (await ToViewsAsync([action], time.GetUtcNow(), cancellationToken))[0];
+    }
+
+    private async Task<IReadOnlyList<PendingActionView>> ToViewsAsync(IReadOnlyList<PendingAction> actions, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var userIds = actions
+            .SelectMany(action => new[] { action.TargetUserId, action.ProposedByUserId, action.DecidedByUserId })
+            .OfType<Guid>()
+            .Distinct()
+            .ToList();
+        var agencyIds = actions.Select(action => action.TargetAgencyId).OfType<Guid>().Distinct().ToList();
+
+        var userNames = await db.Users.AsNoTracking().Where(user => userIds.Contains(user.Id)).ToDictionaryAsync(user => user.Id, user => user.FullName, cancellationToken);
+        var agencyNames = await db.Agencies.AsNoTracking().Where(agency => agencyIds.Contains(agency.Id)).ToDictionaryAsync(agency => agency.Id, agency => agency.Name, cancellationToken);
+
+        return
+        [
+            .. actions.Select(action =>
+            {
+                var targetName = action.TargetUserId is { } user ? userNames.GetValueOrDefault(user) : agencyNames.GetValueOrDefault(action.TargetAgencyId!.Value);
+
+                return new PendingActionView(
+                    action.Id,
+                    action.Type,
+                    action.TargetUserId,
+                    action.TargetAgencyId,
+                    targetName,
+                    ActionPayloads.Describe(action.Type, action.Payload, targetName),
+                    action.Payload,
+                    action.PayloadHash,
+                    action.Reason,
+                    action.EffectiveStatus(now),
+                    action.ProposedByUserId,
+                    userNames.GetValueOrDefault(action.ProposedByUserId),
+                    action.ProposedAt,
+                    action.ExpiresAt,
+                    action.DecidedByUserId,
+                    action.DecidedAt,
+                    action.DecisionReason,
+                    action.LastRefusalCode,
+                    action.LastRefusalMessage,
+                    action.LastRefusedAt);
+            }),
+        ];
+    }
+}

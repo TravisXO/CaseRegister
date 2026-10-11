@@ -34,6 +34,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     private readonly Dictionary<string, string?> _settings;
 
+    /// <summary>The database owner's connection (the one migrations use). Set for factories that have a database; null otherwise.</summary>
+    public string? OwnerConnectionString { get; private init; }
+
     private ApiFactory(string defaultConnectionString, Action<Dictionary<string, string?>>? adjustSettings)
     {
         _settings = new Dictionary<string, string?>
@@ -97,6 +100,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             SignInPerIpPerMinute = signInPerIpPerMinute,
             SignInPerAccountPerHour = signInPerAccountPerHour,
             TwoFactorAttemptsPerMinute = twoFactorAttemptsPerMinute,
+            OwnerConnectionString = owner,
         };
     }
 
@@ -227,9 +231,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         Agency agency,
         Role[] roles,
         bool currentCertificate = true,
-        MembershipClass membershipClass = MembershipClass.Full)
+        MembershipClass membershipClass = MembershipClass.Full,
+        bool twoFactor = true)
     {
-        var user = await CreateUserAsync(email, agencyId: agency.Id, membershipClass: membershipClass);
+        var user = await CreateUserAsync(email, agencyId: agency.Id, membershipClass: membershipClass, twoFactor: twoFactor);
         await AssignRolesAsync(user, roles);
 
         if (currentCertificate)

@@ -25,6 +25,12 @@ public sealed class AuthenticatorRecord : Entity
 
     public DateTimeOffset? EnabledAt { get; set; }
 
+    /// <summary>
+    /// Set when an admin reset this account's two-factor. The row is kept (nothing is deleted) but no
+    /// longer counts: every query skips it, and the person enrols again with a new key.
+    /// </summary>
+    public DateTimeOffset? RemovedAt { get; set; }
+
     /// <summary>The time step of the last code accepted. A code from that step or an earlier one is a replay.</summary>
     public long? LastUsedStep { get; set; }
 }

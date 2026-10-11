@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+using CaseRegister.Api.Cli;
 using CaseRegister.Api.Security;
 using CaseRegister.Application;
 using CaseRegister.Infrastructure;
@@ -8,7 +10,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers(options => options.AddWebSecurityFilters());
+builder.Services.AddControllers(options => options.AddWebSecurityFilters())
+    // Enums travel as their names ("AssignRole"), never as numbers that mean something different if the list is reordered.
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddApplication();
@@ -16,6 +20,13 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddWebSecurity();
 
 var app = builder.Build();
+
+// "dotnet run -- seed-admin" runs a command instead of the web server. It comes first, before anything
+// touches the database, because it has to be able to refuse while migrations are pending.
+if (args.Length > 0 && args[0] == SeedAdminCommand.Name)
+{
+    return await SeedAdminCommand.RunAsync(args, app.Services, app.Configuration, new ConsoleTerminal());
+}
 
 // Must be first, so everything after it sees the real client address and scheme.
 app.UseForwardedHeaders();
@@ -44,6 +55,8 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+return 0;
 
 // Lets the integration tests start the application with WebApplicationFactory<Program>.
 public partial class Program;

@@ -16,6 +16,12 @@ public enum Capability
     ViewFicTotals,
     ApproveAgents,
     ReadAuditLog,
+
+    // Admin actions on accounts and agencies (maker-checker). Admins only; none involves an agent role.
+    ViewPendingActions,
+    ProposeAdminActions,
+    ConfirmAdminActions,
+    RestrictAccess,
 }
 
 /// <summary>How far a role's capability reaches across records.</summary>
@@ -89,6 +95,17 @@ public static class PermissionMatrix
             [Capability.ReadAuditLog] = Grant(
                 (Role.AgencyComplianceOfficer, AccessScope.OwnAgency),
                 (Role.Admin, AccessScope.All)),
+
+            [Capability.ViewPendingActions] = Grant((Role.Admin, AccessScope.Unscoped)),
+
+            // Propose, and withdraw one's own proposal.
+            [Capability.ProposeAdminActions] = Grant((Role.Admin, AccessScope.Unscoped)),
+
+            // Confirm or reject someone else's proposal. Needs a fresh two-factor code on top.
+            [Capability.ConfirmAdminActions] = Grant((Role.Admin, AccessScope.Unscoped)),
+
+            // Suspend an account or an agency, or end sessions, at once.
+            [Capability.RestrictAccess] = Grant((Role.Admin, AccessScope.Unscoped)),
         };
 
     public static IEnumerable<Capability> Capabilities => Enum.GetValues<Capability>();

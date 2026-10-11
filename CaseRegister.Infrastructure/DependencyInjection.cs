@@ -1,6 +1,9 @@
 using CaseRegister.Application.Accounts;
+using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
+using CaseRegister.Infrastructure.Approvals;
+using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Identity;
 using CaseRegister.Infrastructure.KeyProtection;
@@ -146,7 +149,9 @@ public static class DependencyInjection
         services.AddScoped<ISessionService, SessionService>();
 
         // Roles, certificates and the member profile.
-        services.AddScoped<IRoleAssignmentService, RoleAssignmentService>();
+        services.AddScoped<RoleAssignmentService>();
+        services.AddScoped<IRoleAssignmentService>(provider => provider.GetRequiredService<RoleAssignmentService>());
+        AddAdminApprovals(services);
         services.AddScoped<IPractisingCertificateService, PractisingCertificateService>();
         services.AddScoped<IMemberProfileService, MemberProfileService>();
         services.AddSingleton<AuthenticatorKeyProtector>();
@@ -156,6 +161,25 @@ public static class DependencyInjection
         // Sessions live in Postgres. The cookie handler is pointed at this store by the Api project.
         services.AddHttpContextAccessor();
         services.AddSingleton<ITicketStore, DatabaseTicketStore>();
+    }
+
+    private static void AddAdminApprovals(IServiceCollection services)
+    {
+        // One operation per kind of admin action. The engine and the immediate actions find them by type.
+        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.AssignRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>()));
+        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.RemoveRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>()));
+        services.AddScoped<IAdminOperation, VerifyCertificateOperation>();
+        services.AddScoped<IAdminOperation, ReactivateUserOperation>();
+        services.AddScoped<IAdminOperation, ReactivateAgencyOperation>();
+        services.AddScoped<IAdminOperation, ResetTwoFactorOperation>();
+        services.AddScoped<IAdminOperation, SuspendUserOperation>();
+        services.AddScoped<IAdminOperation, EndSessionsOperation>();
+        services.AddScoped<IAdminOperation, SuspendAgencyOperation>();
+
+        services.AddScoped<IPendingActionService, PendingActionService>();
+        services.AddScoped<IAccountAdministrationService, AccountAdministrationService>();
+        services.AddScoped<IAgencyStatus, AgencyStatusReader>();
+        services.AddScoped<IAdminSeeder, AdminSeeder>();
     }
 
     private static void AddKeyProtection(IServiceCollection services, IConfiguration configuration)
