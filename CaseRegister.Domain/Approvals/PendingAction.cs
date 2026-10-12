@@ -22,6 +22,9 @@ public sealed class PendingAction : Entity
 
     public Guid? TargetAgencyId { get; private set; }
 
+    /// <summary>For an invite, whose account does not exist yet: the invited address, normalised. Then neither of the other two targets is set.</summary>
+    public string? TargetEmail { get; private set; }
+
     /// <summary>What exactly is proposed beyond the type and target (a role, a certificate), as canonical JSON. Never changed.</summary>
     public string Payload { get; private set; } = "{}";
 
@@ -60,11 +63,12 @@ public sealed class PendingAction : Entity
         string payload,
         string reason,
         Guid proposedByUserId,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? targetEmail = null)
     {
-        if ((targetUserId is null) == (targetAgencyId is null))
+        if (new object?[] { targetUserId, targetAgencyId, targetEmail }.Count(target => target is not null) != 1)
         {
-            throw new ArgumentException("An action targets exactly one user or one agency.");
+            throw new ArgumentException("An action targets exactly one user, one agency or one email address.");
         }
 
         if (ApprovalRules.CheckReason(reason) is { } problem)
@@ -77,8 +81,9 @@ public sealed class PendingAction : Entity
             Type = type,
             TargetUserId = targetUserId,
             TargetAgencyId = targetAgencyId,
+            TargetEmail = targetEmail,
             Payload = payload,
-            PayloadHash = HashOf(type, targetUserId, targetAgencyId, payload),
+            PayloadHash = HashOf(type, targetUserId, targetAgencyId, payload, targetEmail),
             Reason = reason.Trim(),
             ProposedByUserId = proposedByUserId,
             ProposedAt = now,
@@ -90,15 +95,15 @@ public sealed class PendingAction : Entity
     /// What the confirmer has to quote. It covers the type, the target and the payload, so approving a hash
     /// is approving exactly that action on exactly that account.
     /// </summary>
-    public static string HashOf(PendingActionType type, Guid? targetUserId, Guid? targetAgencyId, string payload)
+    public static string HashOf(PendingActionType type, Guid? targetUserId, Guid? targetAgencyId, string payload, string? targetEmail = null)
     {
-        var canonical = $"{type}|{targetUserId:D}|{targetAgencyId:D}|{payload}";
+        var canonical = $"{type}|{targetUserId:D}|{targetAgencyId:D}|{payload}" + (targetEmail is null ? string.Empty : $"|{targetEmail}");
 
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 
     /// <summary>The stored hash still matches the stored type, target and payload. False means the row was altered outside the application.</summary>
-    public bool IsIntact => string.Equals(PayloadHash, HashOf(Type, TargetUserId, TargetAgencyId, Payload), StringComparison.Ordinal);
+    public bool IsIntact => string.Equals(PayloadHash, HashOf(Type, TargetUserId, TargetAgencyId, Payload, TargetEmail), StringComparison.Ordinal);
 
     /// <summary>Expiry is worked out here, from the time, not stored by a background job.</summary>
     public PendingActionStatus EffectiveStatus(DateTimeOffset now) =>

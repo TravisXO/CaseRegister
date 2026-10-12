@@ -11,8 +11,36 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CaseRegister.Infrastructure.Approvals;
 
+/// <summary>Things an operation hands back that must be shown once and kept nowhere: today, the setup token of an invite.</summary>
+internal sealed class OperationOutput
+{
+    public string? SetupToken { get; set; }
+}
+
 /// <summary>Who an operation is run by, and what on.</summary>
-internal sealed record OperationContext(Guid ActorId, Guid? TargetUserId, Guid? TargetAgencyId, string Payload);
+/// <param name="ProposalReason">The reason the proposer gave, for operations that record why (a rejection).</param>
+internal sealed class OperationContext(
+    Guid actorId,
+    Guid? targetUserId,
+    Guid? targetAgencyId,
+    string payload,
+    string? targetEmail = null,
+    string? proposalReason = null)
+{
+    public Guid ActorId { get; } = actorId;
+
+    public Guid? TargetUserId { get; } = targetUserId;
+
+    public Guid? TargetAgencyId { get; } = targetAgencyId;
+
+    public string Payload { get; } = payload;
+
+    public string? TargetEmail { get; } = targetEmail;
+
+    public string? ProposalReason { get; } = proposalReason;
+
+    public OperationOutput Output { get; init; } = new();
+}
 
 /// <summary>
 /// What an operation would do right now. <see cref="Problems"/> is every rule that forbids it in the

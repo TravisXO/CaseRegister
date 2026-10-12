@@ -1,7 +1,9 @@
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
+using CaseRegister.Domain.Applications;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Domain.Certificates;
+using CaseRegister.Domain.Invites;
 using CaseRegister.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -161,8 +163,8 @@ internal sealed class PendingActionConfiguration : IEntityTypeConfiguration<Pend
     {
         builder.ToTable("pending_actions", table =>
         {
-            // An action is aimed at exactly one account or one agency, never both and never neither.
-            table.HasCheckConstraint("ck_pending_actions_one_target", "(target_user_id IS NULL) <> (target_agency_id IS NULL)");
+            // An action is aimed at exactly one account, one agency or (for an invite, whose account does not exist yet) one email address.
+            table.HasCheckConstraint("ck_pending_actions_one_target", "num_nonnulls(target_user_id, target_agency_id, target_email) = 1");
         });
 
         builder.Property(action => action.Type).HasConversion<string>().HasMaxLength(40).IsRequired();
@@ -176,6 +178,7 @@ internal sealed class PendingActionConfiguration : IEntityTypeConfiguration<Pend
 
         builder.Ignore(action => action.IsIntact);
 
+        builder.Property(action => action.TargetEmail).HasMaxLength(254);
         builder.Property(action => action.Payload).HasMaxLength(2000).IsRequired();
 
         // SHA-256 as hex: 64 characters.
@@ -192,12 +195,69 @@ internal sealed class PendingActionConfiguration : IEntityTypeConfiguration<Pend
 
         // One pending proposal per action type and target. NULLs count as equal (the other target column is
         // always NULL), and a decided or lapsed proposal no longer counts, so the same thing can be proposed again.
-        builder.HasIndex(action => new { action.Type, action.TargetUserId, action.TargetAgencyId })
+        builder.HasIndex(action => new { action.Type, action.TargetUserId, action.TargetAgencyId, action.TargetEmail })
             .IsUnique()
             .AreNullsDistinct(false)
             .HasFilter("status = 'Pending'")
             .HasDatabaseName("ux_pending_actions_one_pending_per_target");
 
         builder.HasIndex(action => new { action.Status, action.ExpiresAt });
+    }
+}
+
+internal sealed class MemberApplicationConfiguration : IEntityTypeConfiguration<MemberApplication>
+{
+    public void Configure(EntityTypeBuilder<MemberApplication> builder)
+    {
+        builder.ToTable("member_applications");
+
+        // One application per applicant. Nothing is deleted: the applicant's account is kept, rejected or not.
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(application => application.UserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(application => application.UserId).IsUnique();
+
+        // A claim, not a fact: there is deliberately no unique index, so two applicants can claim one number and be flagged.
+        builder.Property(application => application.MembershipNumber)
+            .HasConversion(number => number.Value, value => MembershipNumber.FromValue(value))
+            .HasColumnName("membership_number");
+        builder.HasIndex(application => application.MembershipNumber);
+
+        builder.Property(application => application.MembershipClass).HasConversion<string>().HasMaxLength(20).IsRequired();
+        builder.Property(application => application.AgencyName).HasMaxLength(MemberApplication.MaxAgencyNameLength).IsRequired();
+
+        builder.Property(application => application.CertificateNumber)
+            .HasConversion(number => number.ToString(), text => CertificateNumber.Parse(text))
+            .HasColumnName("certificate_number")
+            .HasMaxLength(11)
+            .IsRequired();
+
+        // Readable in the database ("Reapplication, DuplicateMembershipNumber").
+        builder.Property(application => application.Flags).HasConversion<string>().HasMaxLength(100).IsRequired();
+        builder.Property(application => application.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+        builder.Property(application => application.DecisionReason).HasMaxLength(500);
+        builder.Property(application => application.SubmittedAt).HasColumnType("timestamp with time zone");
+        builder.Property(application => application.DecidedAt).HasColumnType("timestamp with time zone");
+
+        builder.HasOne<Agency>().WithMany().HasForeignKey(application => application.ApprovedAgencyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(application => application.Status);
+    }
+}
+
+internal sealed class StaffSetupTokenConfiguration : IEntityTypeConfiguration<StaffSetupToken>
+{
+    public void Configure(EntityTypeBuilder<StaffSetupToken> builder)
+    {
+        builder.ToTable("staff_setup_tokens");
+
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(token => token.UserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(token => token.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+
+        // SHA-256 as hex: 64 characters. Only the hash is kept, never the token.
+        builder.Property(token => token.TokenHash).HasMaxLength(64).IsRequired();
+        builder.HasIndex(token => token.TokenHash).IsUnique();
+        builder.HasIndex(token => token.UserId);
+
+        builder.Property(token => token.ExpiresAt).HasColumnType("timestamp with time zone");
+        builder.Property(token => token.UsedAt).HasColumnType("timestamp with time zone");
+        builder.Property(token => token.RevokedAt).HasColumnType("timestamp with time zone");
     }
 }

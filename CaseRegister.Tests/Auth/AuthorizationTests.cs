@@ -147,6 +147,10 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("DELETE", "api/auth/sessions/{id:guid}", "two-factor"),
             new("POST", "api/auth/sign-in", "anonymous"),
             new("POST", "api/auth/sign-out", "SignedIn"),
+            new("POST", "api/auth/sign-up", "anonymous"),
+            new("POST", "api/auth/staff-setup/start", "anonymous"),
+            new("POST", "api/auth/staff-setup/complete", "anonymous"),
+            new("GET", "api/admin/applications", "ViewApplications"),
 
             // Admin actions: each has the named policy for what it does, and nothing is left to a bare [Authorize].
             new("GET", "api/admin/pending-actions", "ViewPendingActions"),
@@ -166,9 +170,9 @@ public class AuthorizationTests(PostgresFixture postgres)
 
         Assert.Equal(expected, endpoints);
 
-        // The only endpoints open to anyone are the three that have to be: a token, and the two sign-in steps.
+        // The only endpoints open to anyone are those that have to be: a token, the two sign-in steps, applying, and the two steps of staff setup.
         Assert.Equal(
-            ["api/auth/2fa/verify", "api/auth/csrf", "api/auth/sign-in"],
+            ["api/auth/2fa/verify", "api/auth/csrf", "api/auth/sign-in", "api/auth/sign-up", "api/auth/staff-setup/complete", "api/auth/staff-setup/start"],
             endpoints.Where(rule => rule.Rule == "anonymous").Select(rule => rule.Route).Order(StringComparer.Ordinal));
     }
 }

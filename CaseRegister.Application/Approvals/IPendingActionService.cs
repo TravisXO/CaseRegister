@@ -12,13 +12,23 @@ namespace CaseRegister.Application.Approvals;
 /// <param name="Role">The role to give or take away (AssignRole, RemoveRole).</param>
 /// <param name="CertificateId">The certificate to verify (VerifyPractisingCertificate); the target is its owner.</param>
 /// <param name="Reason">Why, in 10 to 500 characters.</param>
+/// <param name="ExistingAgencyId">The existing agency an approved applicant joins (ApproveApplication). Exactly one of this and the next.</param>
+/// <param name="NewAgencyName">The name of a new agency to create for them (ApproveApplication).</param>
+/// <param name="AcknowledgedFlags">Every flag on the application, by name. An approval that leaves one out is refused.</param>
+/// <param name="InviteEmail">Who to invite (InviteStaff), with the name and the role.</param>
+/// <param name="InviteFullName">The invited person's name (InviteStaff).</param>
 public sealed record ProposeActionCommand(
     PendingActionType Type,
     Guid? TargetUserId,
     Guid? TargetAgencyId,
     Role? Role,
     Guid? CertificateId,
-    string Reason);
+    string Reason,
+    Guid? ExistingAgencyId = null,
+    string? NewAgencyName = null,
+    IReadOnlyList<string>? AcknowledgedFlags = null,
+    string? InviteEmail = null,
+    string? InviteFullName = null);
 
 /// <param name="PayloadHash">The hash of the proposal as the confirmer saw it. If the proposal is not that, it is refused.</param>
 /// <param name="TwoFactorCode">A fresh authenticator code (or a recovery code) from the confirmer: a signed-in session is not enough.</param>
@@ -47,7 +57,8 @@ public sealed record PendingActionView(
     string? DecisionReason,
     string? LastRefusalCode,
     string? LastRefusalMessage,
-    DateTimeOffset? LastRefusedAt);
+    DateTimeOffset? LastRefusedAt,
+    string? TargetEmail = null);
 
 public enum ProposeOutcome
 {
@@ -98,7 +109,8 @@ public sealed record ConfirmResult(
     PendingActionView? Action = null,
     IReadOnlyList<ApprovalViolation>? Problems = null,
     TimeSpan? RetryAfter = null,
-    bool WasRepeat = false);
+    bool WasRepeat = false,
+    string? SetupLink = null);
 
 public enum DecisionOutcome
 {

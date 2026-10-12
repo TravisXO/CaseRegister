@@ -67,6 +67,7 @@ public class AdminEndpointTests(PostgresFixture postgres)
     private static IEnumerable<(HttpMethod Method, string Path)> AllEndpoints(Guid id) =>
     [
         (HttpMethod.Get, "/api/admin/pending-actions"),
+        (HttpMethod.Get, "/api/admin/applications"),
         (HttpMethod.Get, $"/api/admin/pending-actions/{id}"),
         (HttpMethod.Post, "/api/admin/pending-actions"),
         (HttpMethod.Post, $"/api/admin/pending-actions/{id}/confirm"),

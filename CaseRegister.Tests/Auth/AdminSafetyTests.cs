@@ -235,8 +235,8 @@ public class AdminSafetyTests(PostgresFixture postgres)
                 await factory.AssignRolesAsync(b, Role.Admin);
             }
 
-            await factory.RejectAsync(c, await factory.GetAsync(suspendC.Id));
-            await factory.RejectAsync(c, await factory.GetAsync(removeB.Id));
+            await factory.RejectAsync(b, await factory.GetAsync(suspendC.Id)); // not C: it is the target of this one
+            await factory.RejectAsync(c, await factory.GetAsync(removeB.Id)); // not B: it is the target of this one
             Assert.Equal(3, await ActiveAdmins(factory));
         }
     }

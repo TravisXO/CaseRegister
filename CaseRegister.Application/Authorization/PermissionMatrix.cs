@@ -22,6 +22,7 @@ public enum Capability
     ProposeAdminActions,
     ConfirmAdminActions,
     RestrictAccess,
+    ViewApplications,
 }
 
 /// <summary>How far a role's capability reaches across records.</summary>
@@ -106,6 +107,9 @@ public static class PermissionMatrix
 
             // Suspend an account or an agency, or end sessions, at once.
             [Capability.RestrictAccess] = Grant((Role.Admin, AccessScope.Unscoped)),
+
+            // The waiting applications from would-be members, with their flags.
+            [Capability.ViewApplications] = Grant((Role.Admin, AccessScope.Unscoped)),
         };
 
     public static IEnumerable<Capability> Capabilities => Enum.GetValues<Capability>();

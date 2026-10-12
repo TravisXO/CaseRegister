@@ -61,6 +61,108 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.ToTable("agencies", (string)null);
                 });
 
+            modelBuilder.Entity("CaseRegister.Domain.Applications.MemberApplication", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AgencyName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("agency_name");
+
+                    b.Property<Guid?>("ApprovedAgencyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_agency_id");
+
+                    b.Property<string>("CertificateNumber")
+                        .IsRequired()
+                        .HasMaxLength(11)
+                        .HasColumnType("character varying(11)")
+                        .HasColumnName("certificate_number");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_user_id");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("decision_reason");
+
+                    b.Property<string>("Flags")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("flags");
+
+                    b.Property<string>("MembershipClass")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("membership_class");
+
+                    b.Property<int>("MembershipNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("membership_number");
+
+                    b.Property<int>("ReapplicationCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("reapplication_count");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_member_applications");
+
+                    b.HasIndex("ApprovedAgencyId")
+                        .HasDatabaseName("ix_member_applications_approved_agency_id");
+
+                    b.HasIndex("MembershipNumber")
+                        .HasDatabaseName("ix_member_applications_membership_number");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_member_applications_status");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_member_applications_user_id");
+
+                    b.ToTable("member_applications", (string)null);
+                });
+
             modelBuilder.Entity("CaseRegister.Domain.Approvals.PendingAction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -138,6 +240,11 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("target_agency_id");
 
+                    b.Property<string>("TargetEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("target_email");
+
                     b.Property<Guid?>("TargetUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("target_user_id");
@@ -176,16 +283,16 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.HasIndex("Status", "ExpiresAt")
                         .HasDatabaseName("ix_pending_actions_status_expires_at");
 
-                    b.HasIndex("Type", "TargetUserId", "TargetAgencyId")
+                    b.HasIndex("Type", "TargetUserId", "TargetAgencyId", "TargetEmail")
                         .IsUnique()
                         .HasDatabaseName("ux_pending_actions_one_pending_per_target")
                         .HasFilter("status = 'Pending'");
 
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("Type", "TargetUserId", "TargetAgencyId"), false);
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("Type", "TargetUserId", "TargetAgencyId", "TargetEmail"), false);
 
                     b.ToTable("pending_actions", null, t =>
                         {
-                            t.HasCheckConstraint("ck_pending_actions_one_target", "(target_user_id IS NULL) <> (target_agency_id IS NULL)");
+                            t.HasCheckConstraint("ck_pending_actions_one_target", "num_nonnulls(target_user_id, target_agency_id, target_email) = 1");
                         });
                 });
 
@@ -246,6 +353,68 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_practising_certificates_user_id_valid_from");
 
                     b.ToTable("practising_certificates", (string)null);
+                });
+
+            modelBuilder.Entity("CaseRegister.Domain.Invites.StaffSetupToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_staff_setup_tokens");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_staff_setup_tokens_created_by_user_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_staff_setup_tokens_token_hash");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_staff_setup_tokens_user_id");
+
+                    b.ToTable("staff_setup_tokens", (string)null);
                 });
 
             modelBuilder.Entity("CaseRegister.Infrastructure.Identity.ApplicationUser", b =>
@@ -829,6 +998,22 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("CaseRegister.Domain.Applications.MemberApplication", b =>
+                {
+                    b.HasOne("CaseRegister.Domain.Agencies.Agency", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedAgencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_member_applications_agencies_approved_agency_id");
+
+                    b.HasOne("CaseRegister.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_member_applications_users_user_id");
+                });
+
             modelBuilder.Entity("CaseRegister.Domain.Approvals.PendingAction", b =>
                 {
                     b.HasOne("CaseRegister.Infrastructure.Identity.ApplicationUser", null)
@@ -865,6 +1050,23 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_practising_certificates_users_user_id");
+                });
+
+            modelBuilder.Entity("CaseRegister.Domain.Invites.StaffSetupToken", b =>
+                {
+                    b.HasOne("CaseRegister.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_staff_setup_tokens_users_created_by_user_id");
+
+                    b.HasOne("CaseRegister.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_staff_setup_tokens_users_user_id");
                 });
 
             modelBuilder.Entity("CaseRegister.Infrastructure.Identity.ApplicationUser", b =>

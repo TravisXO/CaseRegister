@@ -1,4 +1,5 @@
 using CaseRegister.Application.Accounts;
+using CaseRegister.Application.Applications;
 using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
@@ -175,6 +176,25 @@ public static class DependencyInjection
         services.AddScoped<IAdminOperation, SuspendUserOperation>();
         services.AddScoped<IAdminOperation, EndSessionsOperation>();
         services.AddScoped<IAdminOperation, SuspendAgencyOperation>();
+
+        services.AddScoped<IAdminOperation, ApproveApplicationOperation>();
+        services.AddScoped<IAdminOperation, RejectApplicationOperation>();
+        services.AddScoped<IAdminOperation, InviteStaffOperation>();
+
+        // Sign-up, review, and the last step of a staff invite.
+        services.AddScoped<IMemberSignUpService, MemberSignUpService>();
+        services.AddScoped<IApplicationReviewService, ApplicationReviewService>();
+        services.AddScoped<IStaffSetupService, StaffSetupService>();
+        services.AddSingleton<SetupFailureTracker>();
+
+        // Where the setup link points. No default in code: it comes from configuration and a bad value stops startup.
+        services.AddOptions<StaffInviteOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+                options.SetupPageUrl = configuration[StaffInviteOptions.SetupPageUrlKey] ?? string.Empty)
+            .Validate(
+                options => StaffInviteOptions.IsValid(options.SetupPageUrl),
+                $"{StaffInviteOptions.SetupPageUrlKey} must be an absolute https address (http only for localhost) with no # in it.")
+            .ValidateOnStart();
 
         services.AddScoped<IPendingActionService, PendingActionService>();
         services.AddScoped<IAccountAdministrationService, AccountAdministrationService>();

@@ -11,6 +11,8 @@ namespace CaseRegister.Api.Security;
 public static class RateLimitPolicies
 {
     public const string SignInPerIp = "sign-in-per-ip";
+    public const string SignUpPerIp = "sign-up-per-ip";
+    public const string StaffSetupPerIp = "staff-setup-per-ip";
 }
 
 /// <summary>The sign-in limits. The defaults are the real ones; tests lower or raise them.</summary>
@@ -19,6 +21,11 @@ public sealed class RateLimitingOptions
     public int SignInPerIpPerMinute { get; set; } = 5;
 
     public int SignInPerAccountPerHour { get; set; } = 10;
+
+    /// <summary>Sign-ups per client address per hour.</summary>
+    public int SignUpPerIpPerHour { get; set; } = 3;
+
+    public int StaffSetupPerIpPerMinute { get; set; } = 10;
 }
 
 /// <summary>

@@ -5,7 +5,11 @@ using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Identity;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
+using CaseRegister.Application.Applications;
+using CaseRegister.Domain.Accounts;
 
 namespace CaseRegister.Infrastructure.Approvals;
 
@@ -14,12 +18,14 @@ namespace CaseRegister.Infrastructure.Approvals;
 /// class only puts them in order: check who and what, check the current state, ask for a fresh
 /// two-factor code, then flip the proposal and apply the action in one transaction.
 /// </summary>
-internal sealed class PendingActionService(
+internal sealed partial class PendingActionService(
     AppDbContext db,
     IEnumerable<IAdminOperation> operations,
     ITwoFactorService twoFactor,
     IAuditLog audit,
-    TimeProvider time) : IPendingActionService
+    TimeProvider time,
+    IOptions<StaffInviteOptions> invites,
+    ILogger<PendingActionService> logger) : IPendingActionService
 {
     private const string OnePendingIndex = "ux_pending_actions_one_pending_per_target";
 
@@ -27,7 +33,7 @@ internal sealed class PendingActionService(
 
     private sealed record Actor(Guid Id, Guid? AgencyId);
 
-    private sealed record Attempt(ConfirmOutcome Outcome, IReadOnlyList<ApprovalViolation>? Problems = null, bool Repeat = false);
+    private sealed record Attempt(ConfirmOutcome Outcome, IReadOnlyList<ApprovalViolation>? Problems = null, bool Repeat = false, string? SetupToken = null);
 
     // --- Proposing ---------------------------------------------------------------------------------
 
@@ -64,14 +70,15 @@ internal sealed class PendingActionService(
 
         // Only a proposal that could be confirmed right now is accepted. The same checks run again at confirmation.
         var payload = ActionPayloads.Build(command);
-        var plan = await _operations[command.Type].PlanAsync(new OperationContext(proposer.Id, command.TargetUserId, command.TargetAgencyId, payload), cancellationToken);
+        var targetEmail = command.Type == PendingActionType.InviteStaff ? EmailNormaliser.Normalise(command.InviteEmail!) : null;
+        var plan = await _operations[command.Type].PlanAsync(new OperationContext(proposer.Id, command.TargetUserId, command.TargetAgencyId, payload, targetEmail, command.Reason), cancellationToken);
         if (plan.Problems.Count > 0)
         {
             return new ProposeResult(ProposeOutcome.Refused, Problems: plan.Problems);
         }
 
         var now = time.GetUtcNow();
-        var action = PendingAction.Propose(command.Type, command.TargetUserId, command.TargetAgencyId, payload, command.Reason, proposer.Id, now);
+        var action = PendingAction.Propose(command.Type, command.TargetUserId, command.TargetAgencyId, payload, command.Reason, proposer.Id, now, targetEmail);
         var outcome = ProposeOutcome.Proposed;
 
         var strategy = db.Database.CreateExecutionStrategy();
@@ -86,6 +93,7 @@ internal sealed class PendingActionService(
                 other => other.Type == command.Type
                     && other.TargetUserId == command.TargetUserId
                     && other.TargetAgencyId == command.TargetAgencyId
+                    && other.TargetEmail == targetEmail
                     && other.Status == PendingActionStatus.Pending,
                 cancellationToken);
 
@@ -190,7 +198,7 @@ internal sealed class PendingActionService(
         }
 
         // The state of things now, checked before a code is spent on it.
-        var (stateProblems, plan) = await CheckStateAsync(action, confirmer.Id, cancellationToken);
+        var (stateProblems, plan) = await CheckStateAsync(action, confirmer.Id, new OperationOutput(), cancellationToken);
         if (plan is null)
         {
             return await RecordRefusalAsync(id, confirmer.Id, stateProblems, remoteIpAddress, cancellationToken);
@@ -212,7 +220,11 @@ internal sealed class PendingActionService(
 
         return attempt.Outcome switch
         {
-            ConfirmOutcome.Confirmed => new ConfirmResult(ConfirmOutcome.Confirmed, await ViewAsync(id, cancellationToken), WasRepeat: attempt.Repeat),
+            ConfirmOutcome.Confirmed => new ConfirmResult(
+                ConfirmOutcome.Confirmed,
+                await ViewAsync(id, cancellationToken),
+                WasRepeat: attempt.Repeat,
+                SetupLink: attempt.SetupToken is { } setupToken ? invites.Value.LinkFor(setupToken) : null),
             ConfirmOutcome.Refused => await RecordRefusalAsync(id, confirmer.Id, attempt.Problems!, remoteIpAddress, cancellationToken),
             ConfirmOutcome.Expired or ConfirmOutcome.NotAllowed or ConfirmOutcome.NotPending =>
                 await RefusedForPeopleAsync(action, attempt.Problems ?? [], cancellationToken, attempt.Outcome),
@@ -227,6 +239,7 @@ internal sealed class PendingActionService(
     private async Task<Attempt> ApplyAsync(PendingAction seen, Actor confirmer, string quotedHash, string? remoteIpAddress, CancellationToken cancellationToken)
     {
         Attempt? result = null;
+        var output = new OperationOutput();
         var strategy = db.Database.CreateExecutionStrategy();
 
         try
@@ -234,6 +247,7 @@ internal sealed class PendingActionService(
             await strategy.ExecuteAsync(async () =>
             {
                 result = null;
+                output = new OperationOutput();
                 db.ChangeTracker.Clear();
                 await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -261,7 +275,7 @@ internal sealed class PendingActionService(
                 }
 
                 // Checked again under the lock, against the state as it is at this moment.
-                var (stateProblems, plan) = await CheckStateAsync(action, confirmer.Id, cancellationToken);
+                var (stateProblems, plan) = await CheckStateAsync(action, confirmer.Id, output, cancellationToken);
                 if (plan is null)
                 {
                     result = new Attempt(ConfirmOutcome.Refused, stateProblems);
@@ -292,7 +306,7 @@ internal sealed class PendingActionService(
                     cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
-                result = new Attempt(ConfirmOutcome.Confirmed);
+                result = new Attempt(ConfirmOutcome.Confirmed, SetupToken: output.SetupToken);
             });
         }
         catch (DbUpdateConcurrencyException)
@@ -306,6 +320,14 @@ internal sealed class PendingActionService(
                 : fresh.Status == PendingActionStatus.Pending
                     ? new Attempt(ConfirmOutcome.Refused, [new ApprovalViolation("ChangedMeanwhile", "Something changed while this was being applied. Nothing was done; check it and confirm again.")])
                     : new Attempt(ConfirmOutcome.NotPending, [new ApprovalViolation(ApprovalRules.NotPending, $"This proposal is already {fresh.Status.ToString().ToLowerInvariant()}.")]);
+        }
+        catch (Exception exception) when (exception is DbUpdateException or InvalidOperationException)
+        {
+            // A part of the action failed (for example a rule in the database). The transaction was rolled back,
+            // so nothing of it was kept, and the proposal is still pending.
+            LogApplyFailed(logger, seen.Id, seen.Type, exception);
+            db.ChangeTracker.Clear();
+            result = new Attempt(ConfirmOutcome.Refused, [new ApprovalViolation("ApplyFailed", "Part of this action could not be carried out, so none of it was. Nothing was changed.")]);
         }
 
         return result!;
@@ -403,7 +425,7 @@ internal sealed class PendingActionService(
     /// possible (role rules, the target's status, the two-admin minimum). Every problem is reported, not just the first.
     /// The plan is null if there is any problem.
     /// </summary>
-    private async Task<(IReadOnlyList<ApprovalViolation> Problems, OperationPlan? Plan)> CheckStateAsync(PendingAction action, Guid confirmerId, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<ApprovalViolation> Problems, OperationPlan? Plan)> CheckStateAsync(PendingAction action, Guid confirmerId, OperationOutput output, CancellationToken cancellationToken)
     {
         // Stored hash against the stored fields. If someone changed the proposal behind the application's back, nothing is applied.
         if (!action.IsIntact)
@@ -423,7 +445,7 @@ internal sealed class PendingActionService(
             problems.Add(new ApprovalViolation("ConfirmerNoLongerAdmin", "You are no longer an active admin."));
         }
 
-        var plan = await _operations[action.Type].PlanAsync(ContextOf(action, confirmerId), cancellationToken);
+        var plan = await _operations[action.Type].PlanAsync(ContextOf(action, confirmerId, output), cancellationToken);
         problems.AddRange(plan.Problems);
 
         return (problems, problems.Count == 0 ? plan : null);
@@ -516,10 +538,12 @@ internal sealed class PendingActionService(
                 Detail: $"{action.Id}; {action.Type}; not confirmed within {ApprovalRules.Lifetime.TotalHours:0} hours; nothing was applied"),
             cancellationToken);
 
-    private static OperationContext ContextOf(PendingAction action, Guid actorId) =>
-        new(actorId, action.TargetUserId, action.TargetAgencyId, action.Payload);
+    private static OperationContext ContextOf(PendingAction action, Guid actorId, OperationOutput output) =>
+        new(actorId, action.TargetUserId, action.TargetAgencyId, action.Payload, action.TargetEmail, action.Reason) { Output = output };
 
-    private static string TargetOf(PendingAction action) => (action.TargetUserId ?? action.TargetAgencyId)!.Value.ToString();
+    // An invite has no account yet, so it is named by a label of its email address, never the address itself.
+    private static string TargetOf(PendingAction action) =>
+        (action.TargetUserId ?? action.TargetAgencyId)?.ToString() ?? AuditSubject.ForAttemptedEmail(action.TargetEmail);
 
     private async Task<Actor?> ActorAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -536,7 +560,7 @@ internal sealed class PendingActionService(
     private async Task<bool> TargetExistsAsync(Guid? userId, Guid? agencyId, CancellationToken cancellationToken) =>
         userId is { } user
             ? await db.Users.AnyAsync(u => u.Id == user, cancellationToken)
-            : await db.Agencies.AnyAsync(a => a.Id == agencyId, cancellationToken);
+            : agencyId is null || await db.Agencies.AnyAsync(a => a.Id == agencyId, cancellationToken); // an invite targets an email address, which has no account yet
 
     private async Task<PendingActionView?> ViewAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -562,7 +586,9 @@ internal sealed class PendingActionService(
         [
             .. actions.Select(action =>
             {
-                var targetName = action.TargetUserId is { } user ? userNames.GetValueOrDefault(user) : agencyNames.GetValueOrDefault(action.TargetAgencyId!.Value);
+                var targetName = action.TargetUserId is { } user ? userNames.GetValueOrDefault(user)
+                    : action.TargetAgencyId is { } agency ? agencyNames.GetValueOrDefault(agency)
+                    : ActionPayloads.Invite(action.Payload).FullName; // an invite: the person has no account yet
 
                 return new PendingActionView(
                     action.Id,
@@ -584,8 +610,12 @@ internal sealed class PendingActionService(
                     action.DecisionReason,
                     action.LastRefusalCode,
                     action.LastRefusalMessage,
-                    action.LastRefusedAt);
+                    action.LastRefusedAt,
+                    action.TargetEmail);
             }),
         ];
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Confirming proposal {ProposalId} ({Type}) failed while it was being applied, and was rolled back.")]
+    private static partial void LogApplyFailed(ILogger logger, Guid proposalId, PendingActionType type, Exception exception);
 }

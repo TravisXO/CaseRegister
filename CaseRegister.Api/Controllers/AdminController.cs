@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using CaseRegister.Api.Security;
+using CaseRegister.Application.Applications;
 using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Authorization;
 using CaseRegister.Domain.Approvals;
@@ -16,7 +17,7 @@ namespace CaseRegister.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/admin")]
-public sealed class AdminController(IPendingActionService approvals, IAccountAdministrationService administration) : ControllerBase
+public sealed class AdminController(IPendingActionService approvals, IAccountAdministrationService administration, IApplicationReviewService applications) : ControllerBase
 {
     // --- Proposals that need a second admin ----------------------------------------------------
 
@@ -59,7 +60,7 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
 
         return result.Outcome switch
         {
-            ConfirmOutcome.Confirmed => Ok(Shape(result.Action!)),
+            ConfirmOutcome.Confirmed => Ok(ShapeWithLink(result)),
             ConfirmOutcome.NotFound => NotFound(),
             ConfirmOutcome.HashMismatch => Fail(StatusCodes.Status409Conflict, "Not what you approved", "This proposal is not the one you were shown. Read it again before confirming."),
             ConfirmOutcome.NotPending => Fail(StatusCodes.Status409Conflict, "Already decided", "This proposal has already been decided.", result.Problems),
@@ -83,6 +84,32 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     [Authorize(Policy = nameof(Capability.ProposeAdminActions))]
     public async Task<IActionResult> Withdraw(Guid id, DecisionReasonCommand command, CancellationToken cancellationToken) =>
         Decision(await approvals.WithdrawAsync(id, CurrentUserId(), command.Reason, RemoteIp(), cancellationToken));
+
+    // --- Applications from would-be members ---------------------------------------------------------
+
+    /// <summary>
+    /// Applications waiting for a decision, with their flags and suggested agencies. To approve or reject one, propose
+    /// ApproveApplication or RejectApplication for the applicant: a different admin confirms.
+    /// </summary>
+    [HttpGet("applications")]
+    [Authorize(Policy = nameof(Capability.ViewApplications))]
+    public async Task<IActionResult> Applications(CancellationToken cancellationToken) =>
+        Ok((await applications.ListPendingAsync(cancellationToken)).Select(application => new
+        {
+            applicationId = application.ApplicationId,
+            userId = application.UserId,
+            fullName = application.FullName,
+            email = application.Email,
+            membershipNumber = application.MembershipNumber,
+            membershipClass = application.MembershipClass,
+            agencyName = application.AgencyName,
+            certificateNumber = application.CertificateNumber,
+            certificateYear = application.CertificateYear,
+            flags = application.Flags,
+            submittedAt = application.SubmittedAt,
+            reapplicationCount = application.ReapplicationCount,
+            suggestedAgencies = application.SuggestedAgencies.Select(match => new { id = match.Id, name = match.Name }),
+        }));
 
     // --- Actions that take access away, at once --------------------------------------------------
 
@@ -139,23 +166,35 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     private static bool IsSelf(IReadOnlyList<ApprovalViolation>? problems) =>
         problems?.Any(problem => problem.Code == ApprovalRules.SelfTarget) == true;
 
-    private static object Shape(PendingActionView view) => new
+    /// <summary>The confirmation as shown to the confirming admin. A staff invite's setup link is in it once, here and nowhere else.</summary>
+    private static Dictionary<string, object?> ShapeWithLink(ConfirmResult result)
     {
-        id = view.Id,
-        type = view.Type,
-        target = new { userId = view.TargetUserId, agencyId = view.TargetAgencyId, name = view.TargetName },
-        description = view.Description,
-        payload = JsonSerializer.Deserialize<JsonElement>(view.Payload),
-        payloadHash = view.PayloadHash,
-        reason = view.Reason,
-        status = view.Status,
-        proposedBy = new { userId = view.ProposedByUserId, name = view.ProposedByName },
-        proposedAt = view.ProposedAt,
-        expiresAt = view.ExpiresAt,
-        decidedByUserId = view.DecidedByUserId,
-        decidedAt = view.DecidedAt,
-        decisionReason = view.DecisionReason,
-        lastRefusal = view.LastRefusedAt is null ? null : new { code = view.LastRefusalCode, message = view.LastRefusalMessage, at = view.LastRefusedAt },
+        var shaped = Shape(result.Action!);
+        if (result.SetupLink is not null)
+        {
+            shaped["setupLink"] = result.SetupLink;
+        }
+
+        return shaped;
+    }
+
+    private static Dictionary<string, object?> Shape(PendingActionView view) => new()
+    {
+        ["id"] = view.Id,
+        ["type"] = view.Type,
+        ["target"] = new { userId = view.TargetUserId, agencyId = view.TargetAgencyId, email = view.TargetEmail, name = view.TargetName },
+        ["description"] = view.Description,
+        ["payload"] = JsonSerializer.Deserialize<JsonElement>(view.Payload),
+        ["payloadHash"] = view.PayloadHash,
+        ["reason"] = view.Reason,
+        ["status"] = view.Status,
+        ["proposedBy"] = new { userId = view.ProposedByUserId, name = view.ProposedByName },
+        ["proposedAt"] = view.ProposedAt,
+        ["expiresAt"] = view.ExpiresAt,
+        ["decidedByUserId"] = view.DecidedByUserId,
+        ["decidedAt"] = view.DecidedAt,
+        ["decisionReason"] = view.DecisionReason,
+        ["lastRefusal"] = view.LastRefusedAt is null ? null : new { code = view.LastRefusalCode, message = view.LastRefusalMessage, at = view.LastRefusedAt },
     };
 
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);

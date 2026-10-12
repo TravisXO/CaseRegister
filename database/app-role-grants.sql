@@ -63,7 +63,7 @@ DO $$
 DECLARE
     protected_table text;
 BEGIN
-    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events', 'agencies', 'practising_certificates', 'pending_actions']
+    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events', 'agencies', 'practising_certificates', 'pending_actions', 'member_applications', 'staff_setup_tokens']
     LOOP
         IF to_regclass(format('public.%I', protected_table)) IS NOT NULL THEN
             EXECUTE format('REVOKE DELETE, TRUNCATE ON TABLE public.%I FROM case_register_app', protected_table);
@@ -107,6 +107,17 @@ BEGIN
         REVOKE UPDATE ON TABLE public.pending_actions FROM case_register_app;
         GRANT UPDATE (status, decided_by_user_id, decided_at, decision_reason, last_refusal_code, last_refusal_message, last_refused_at, updated_at)
             ON TABLE public.pending_actions TO case_register_app;
+    END IF;
+END
+$$;
+
+-- A staff setup token is a hash and its dates. Once issued only its outcome (used, replaced) can be
+-- recorded: its owner, hash and expiry never change.
+DO $$
+BEGIN
+    IF to_regclass('public.staff_setup_tokens') IS NOT NULL THEN
+        REVOKE UPDATE ON TABLE public.staff_setup_tokens FROM case_register_app;
+        GRANT UPDATE (used_at, revoked_at, updated_at) ON TABLE public.staff_setup_tokens TO case_register_app;
     END IF;
 END
 $$;

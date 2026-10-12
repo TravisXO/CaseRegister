@@ -109,6 +109,38 @@ public static class WebSecurityExtensions
                 });
             });
 
+            // 3 sign-ups per hour per client IP, counted whatever the outcome (so it says nothing about any account).
+            options.AddPolicy(RateLimitPolicies.SignUpPerIp, httpContext =>
+            {
+                var limits = httpContext.RequestServices.GetRequiredService<IOptions<RateLimitingOptions>>().Value;
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetSlidingWindowLimiter(ip, _ => new SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = limits.SignUpPerIpPerHour,
+                    Window = TimeSpan.FromHours(1),
+                    SegmentsPerWindow = 6,
+                    QueueLimit = 0,
+                    AutoReplenishment = true,
+                });
+            });
+
+            // The staff setup steps: a few a minute per client IP, on top of the count of failed tokens.
+            options.AddPolicy(RateLimitPolicies.StaffSetupPerIp, httpContext =>
+            {
+                var limits = httpContext.RequestServices.GetRequiredService<IOptions<RateLimitingOptions>>().Value;
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetSlidingWindowLimiter(ip, _ => new SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = limits.StaffSetupPerIpPerMinute,
+                    Window = TimeSpan.FromMinutes(1),
+                    SegmentsPerWindow = 6,
+                    QueueLimit = 0,
+                    AutoReplenishment = true,
+                });
+            });
+
             options.OnRejected = async (context, cancellationToken) =>
             {
                 var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var value) ? value : TimeSpan.FromMinutes(1);

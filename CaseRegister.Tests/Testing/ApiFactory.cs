@@ -50,6 +50,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
             // A neutral test prefix, so no test depends on the real default.
             ["Membership:DisplayPrefix"] = "AGT",
+
+            // Where invite links point. The test host is not a real site; only the shape matters.
+            ["Invites:SetupPageUrl"] = "https://app.example.test/staff/setup",
         };
         adjustSettings?.Invoke(_settings);
     }
@@ -78,6 +81,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public int SignInPerAccountPerHour { get; init; } = 10_000;
 
+    /// <summary>Sign-ups per address per hour, and staff setup calls per address per minute. High by default.</summary>
+    public int SignUpPerIpPerHour { get; init; } = 10_000;
+
+    public int StaffSetupPerIpPerMinute { get; init; } = 10_000;
+
     /// <summary>Two-factor codes tried per user per minute. High by default so only the rate-limit tests meet it.</summary>
     public int TwoFactorAttemptsPerMinute { get; init; } = 10_000;
 
@@ -87,7 +95,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         Action<Dictionary<string, string?>>? adjustSettings = null,
         int signInPerIpPerMinute = 10_000,
         int signInPerAccountPerHour = 10_000,
-        int twoFactorAttemptsPerMinute = 10_000)
+        int twoFactorAttemptsPerMinute = 10_000,
+        int signUpPerIpPerHour = 10_000,
+        int staffSetupPerIpPerMinute = 10_000)
     {
         await postgres.EnsureAppRoleAsync();
         var owner = await postgres.CreateDatabaseAsync();
@@ -100,6 +110,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             SignInPerIpPerMinute = signInPerIpPerMinute,
             SignInPerAccountPerHour = signInPerAccountPerHour,
             TwoFactorAttemptsPerMinute = twoFactorAttemptsPerMinute,
+            SignUpPerIpPerHour = signUpPerIpPerHour,
+            StaffSetupPerIpPerMinute = staffSetupPerIpPerMinute,
             OwnerConnectionString = owner,
         };
     }
@@ -350,6 +362,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             {
                 options.SignInPerIpPerMinute = SignInPerIpPerMinute;
                 options.SignInPerAccountPerHour = SignInPerAccountPerHour;
+                options.SignUpPerIpPerHour = SignUpPerIpPerHour;
+                options.StaffSetupPerIpPerMinute = StaffSetupPerIpPerMinute;
             });
 
             services.PostConfigure<TwoFactorOptions>(options => options.AttemptsPerMinutePerUser = TwoFactorAttemptsPerMinute);

@@ -34,6 +34,9 @@ public class ApprovalRulesTests
     [InlineData(PendingActionType.ReactivateAgency, false, true)]
     [InlineData(PendingActionType.ResetTwoFactor, false, true)]
     [InlineData(PendingActionType.ResetTwoFactor, true, true)]
+    [InlineData(PendingActionType.ApproveApplication, false, true)]
+    [InlineData(PendingActionType.RejectApplication, false, true)]
+    [InlineData(PendingActionType.InviteStaff, false, true)]
     [InlineData(PendingActionType.SuspendUser, false, false)]
     [InlineData(PendingActionType.SuspendUser, true, true)]
     [InlineData(PendingActionType.EndSessions, false, false)]
@@ -47,11 +50,12 @@ public class ApprovalRulesTests
     [Fact]
     public void Every_action_type_is_covered_by_the_table_above()
     {
-        // 9 types; the theory above has a row for each in the not-an-admin case.
+        // 12 types; the theory above has a row for each in the not-an-admin case.
         var covered = new[]
         {
             PendingActionType.AssignRole, PendingActionType.RemoveRole, PendingActionType.VerifyPractisingCertificate,
             PendingActionType.ReactivateUser, PendingActionType.ReactivateAgency, PendingActionType.ResetTwoFactor,
+            PendingActionType.ApproveApplication, PendingActionType.RejectApplication, PendingActionType.InviteStaff,
             PendingActionType.SuspendUser, PendingActionType.EndSessions, PendingActionType.SuspendAgency,
         };
 

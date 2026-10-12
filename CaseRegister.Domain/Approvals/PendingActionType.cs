@@ -13,6 +13,9 @@ public enum PendingActionType
     ReactivateUser,
     ReactivateAgency,
     ResetTwoFactor,
+    ApproveApplication,
+    RejectApplication,
+    InviteStaff,
 
     // Reduce access: one admin, immediately, unless the target is an admin.
     SuspendUser,

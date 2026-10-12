@@ -36,6 +36,17 @@ public enum AuditAction
     // Every run of the seed-admin command, whether or not it created anyone.
     AdminSeeded,
     AdminSeedRefused,
+
+    // Applications and staff invites.
+    MemberSignedUp,
+    MemberReapplied,
+    MemberSignUpIgnored,
+    ApplicationFlagged,
+    ApplicationApproved,
+    ApplicationRejected,
+    StaffInviteCreated,
+    StaffSetupCompleted,
+    StaffSetupFailed,
 }
 
 /// <param name="Action">What happened.</param>

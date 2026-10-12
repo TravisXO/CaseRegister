@@ -54,7 +54,12 @@ public sealed class CountingPasswordHasher(IOptions<PasswordHasherOptions> optio
 {
     private readonly PasswordHasher<ApplicationUser> _inner = new(options);
 
-    public string HashPassword(ApplicationUser user, string password) => _inner.HashPassword(user, password);
+    public string HashPassword(ApplicationUser user, string password)
+    {
+        counter.IncrementHash();
+
+        return _inner.HashPassword(user, password);
+    }
 
     public PasswordVerificationResult VerifyHashedPassword(ApplicationUser user, string hashedPassword, string providedPassword)
     {
@@ -71,6 +76,13 @@ public sealed class VerificationCounter
     public int Count => Volatile.Read(ref _count);
 
     public void Increment() => Interlocked.Increment(ref _count);
+
+    private int _hashes;
+
+    /// <summary>Passwords hashed (also the slow part). Sign-up does exactly one on every path.</summary>
+    public int Hashes => Volatile.Read(ref _hashes);
+
+    public void IncrementHash() => Interlocked.Increment(ref _hashes);
 }
 
 /// <summary>Collects log messages so tests can check that something was logged, and what was not.</summary>
