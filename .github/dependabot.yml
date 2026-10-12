@@ -1,0 +1,72 @@
+version: 2
+
+# Weekly, with related updates in one pull request. The lock files (packages.lock.json) are part of each NuGet update.
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      # The first group that matches a package gets it, so the specific ones come before the general ones.
+      entity-framework:
+        patterns:
+          - "Microsoft.EntityFrameworkCore*"
+          - "Npgsql.EntityFrameworkCore*"
+          - "EFCore.*"
+          - "dotnet-ef"
+      aspnet-core:
+        patterns:
+          - "Microsoft.AspNetCore.*"
+      microsoft-extensions:
+        patterns:
+          - "Microsoft.Extensions.*"
+      logging:
+        patterns:
+          - "Serilog*"
+      validation:
+        patterns:
+          - "FluentValidation*"
+      api-reference:
+        patterns:
+          - "Scalar.*"
+      testing:
+        patterns:
+          - "xunit*"
+          - "coverlet*"
+          - "Microsoft.NET.Test.Sdk"
+          - "Testcontainers*"
+          - "dotnet-reportgenerator-globaltool"
+    # A new major version of the framework packages comes with a new .NET: that is moved to on purpose, not by a bot.
+    ignore:
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet-ef"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      dotnet-images:
+        patterns:
+          - "mcr.microsoft.com/dotnet/*"
+    # The .NET version of the images moves with the project, on purpose.
+    ignore:
+      - dependency-name: "mcr.microsoft.com/dotnet/*"
+        update-types: ["version-update:semver-major"]

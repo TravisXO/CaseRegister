@@ -8,6 +8,9 @@
 
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 
+    <!-- Every restore is pinned to the exact packages (and hashes) in packages.lock.json. CI restores in locked mode (a change to any package has to be committed here first). -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>

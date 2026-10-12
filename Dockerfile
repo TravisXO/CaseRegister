@@ -8,13 +8,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Project files first, so the restore layer is reused until a package changes.
+# Project files and their lock files first, so the restore layer is reused until a package changes. Locked mode: the restore
+# fails if any package differs from packages.lock.json, so the image is built from the same packages that were tested.
 COPY .editorconfig Directory.Build.props Directory.Packages.props ./
-COPY CaseRegister.Domain/CaseRegister.Domain.csproj CaseRegister.Domain/
-COPY CaseRegister.Application/CaseRegister.Application.csproj CaseRegister.Application/
-COPY CaseRegister.Infrastructure/CaseRegister.Infrastructure.csproj CaseRegister.Infrastructure/
-COPY CaseRegister.Api/CaseRegister.Api.csproj CaseRegister.Api/
-RUN dotnet restore CaseRegister.Api/CaseRegister.Api.csproj
+COPY CaseRegister.Domain/CaseRegister.Domain.csproj CaseRegister.Domain/packages.lock.json CaseRegister.Domain/
+COPY CaseRegister.Application/CaseRegister.Application.csproj CaseRegister.Application/packages.lock.json CaseRegister.Application/
+COPY CaseRegister.Infrastructure/CaseRegister.Infrastructure.csproj CaseRegister.Infrastructure/packages.lock.json CaseRegister.Infrastructure/
+COPY CaseRegister.Api/CaseRegister.Api.csproj CaseRegister.Api/packages.lock.json CaseRegister.Api/
+RUN dotnet restore CaseRegister.Api/CaseRegister.Api.csproj --locked-mode
 
 COPY CaseRegister.Domain/ CaseRegister.Domain/
 COPY CaseRegister.Application/ CaseRegister.Application/

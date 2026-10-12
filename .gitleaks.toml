@@ -1,0 +1,10 @@
+# The default Gitleaks rules, plus one narrow exception.
+[extend]
+useDefault = true
+
+# The log-redaction tests deliberately contain made-up passwords, tokens and codes: they are what the redaction is tested against.
+# Only the generic "looks like a key" rule is relaxed, and only for that one file. Every other rule still applies to it.
+[[allowlists]]
+description = "Made-up secrets in the log redaction tests"
+targetRules = ["generic-api-key"]
+paths = ['''CaseRegister\.Tests/Hardening/LogRedactionTests\.cs''']
