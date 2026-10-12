@@ -23,6 +23,7 @@ public enum Capability
     ConfirmAdminActions,
     RestrictAccess,
     ViewApplications,
+    VerifyAuditLog,
 }
 
 /// <summary>How far a role's capability reaches across records.</summary>
@@ -110,6 +111,9 @@ public static class PermissionMatrix
 
             // The waiting applications from would-be members, with their flags.
             [Capability.ViewApplications] = Grant((Role.Admin, AccessScope.Unscoped)),
+
+            // Checking the audit chain for tampering. Admins only, and the check is itself audited.
+            [Capability.VerifyAuditLog] = Grant((Role.Admin, AccessScope.Unscoped)),
         };
 
     public static IEnumerable<Capability> Capabilities => Enum.GetValues<Capability>();

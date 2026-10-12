@@ -129,7 +129,7 @@ internal sealed partial class PendingActionService(
                     proposer.Id,
                     Subject: TargetOf(action),
                     IpAddress: remoteIpAddress,
-                    Detail: AuditText.Fit($"{action.Id}; {action.Type}; before: {plan.Before}; after: {plan.After}; hash {action.PayloadHash[..12]}; reason: {action.Reason}")),
+                    Detail: AuditText.Fit($"{action.Id}; {action.Type}; before: {plan.Before}; after: {plan.After}; hash {action.PayloadHash[..12]}; reason: {action.Reason}"), TargetType: TargetTypeOf(action), Before: new { state = plan.Before }, After: new { state = plan.After }),
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -293,7 +293,7 @@ internal sealed partial class PendingActionService(
                         confirmer.Id,
                         Subject: TargetOf(action),
                         IpAddress: remoteIpAddress,
-                        Detail: AuditText.Fit($"{action.Id}; {action.Type}; proposed by {action.ProposedByUserId}; before: {plan.Before}; after: {plan.After}")),
+                        Detail: AuditText.Fit($"{action.Id}; {action.Type}; proposed by {action.ProposedByUserId}; before: {plan.Before}; after: {plan.After}"), TargetType: TargetTypeOf(action), Before: new { state = plan.Before }, After: new { state = plan.After }),
                     cancellationToken);
 
                 await audit.WriteAsync(
@@ -302,7 +302,7 @@ internal sealed partial class PendingActionService(
                         confirmer.Id,
                         Subject: plan.EffectSubject ?? TargetOf(action),
                         IpAddress: remoteIpAddress,
-                        Detail: AuditText.Fit($"approved action {action.Id}; before: {plan.Before}; after: {plan.After}")),
+                        Detail: AuditText.Fit($"approved action {action.Id}; before: {plan.Before}; after: {plan.After}"), Before: new { state = plan.Before }, After: new { state = plan.After }),
                     cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
@@ -398,21 +398,31 @@ internal sealed partial class PendingActionService(
 
         try
         {
-            await db.SaveChangesAsync(cancellationToken);
+            // The decision and its entry are one transaction: neither exists without the other.
+            await Transactions.RunAsync(
+                db,
+                async () =>
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                    await audit.WriteAsync(
+                        new AuditEntry(
+                            withdraw ? AuditAction.ActionWithdrawn : AuditAction.ActionRejected,
+                            actor.Id,
+                            Subject: TargetOf(action),
+                            IpAddress: remoteIpAddress,
+                            Detail: AuditText.Fit($"{action.Id}; {action.Type}; {before} -> status: {action.Status}; nothing was applied; reason: {action.DecisionReason}"),
+                            TargetType: TargetTypeOf(action),
+                            Before: new { status = before },
+                            After: new { status = action.Status.ToString() }),
+                        cancellationToken);
+                },
+                cancellationToken);
         }
         catch (DbUpdateConcurrencyException)
         {
             return new DecisionResult(DecisionOutcome.NotPending, Problems: [new ApprovalViolation(ApprovalRules.NotPending, "This proposal was decided at the same moment.")]);
         }
 
-        await audit.WriteAsync(
-            new AuditEntry(
-                withdraw ? AuditAction.ActionWithdrawn : AuditAction.ActionRejected,
-                actor.Id,
-                Subject: TargetOf(action),
-                IpAddress: remoteIpAddress,
-                Detail: AuditText.Fit($"{action.Id}; {action.Type}; {before} -> status: {action.Status}; nothing was applied; reason: {action.DecisionReason}")),
-            cancellationToken);
 
         return new DecisionResult(DecisionOutcome.Done, await ViewAsync(id, cancellationToken));
     }
@@ -480,27 +490,35 @@ internal sealed partial class PendingActionService(
         db.ChangeTracker.Clear();
         var action = await db.PendingActions.SingleAsync(a => a.Id == id, cancellationToken);
 
-        if (action.Status == PendingActionStatus.Pending)
-        {
-            action.RecordRefusal(problems[0], time.GetUtcNow());
-
-            try
+        // The note on the proposal and the entry that records the refusal are one transaction.
+        await Transactions.RunAsync(
+            db,
+            async () =>
             {
-                await db.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                db.ChangeTracker.Clear(); // decided at the same moment; the refusal is still reported below
-            }
-        }
+                if (action.Status == PendingActionStatus.Pending)
+                {
+                    action.RecordRefusal(problems[0], time.GetUtcNow());
 
-        await audit.WriteAsync(
-            new AuditEntry(
-                AuditAction.ActionRefused,
-                byUserId,
-                Subject: TargetOf(action),
-                IpAddress: remoteIpAddress,
-                Detail: AuditText.Fit($"{action.Id}; {action.Type}; confirmation refused, still pending: {string.Join(", ", problems.Select(problem => problem.Code))}")),
+                    try
+                    {
+                        await db.SaveChangesAsync(cancellationToken);
+                    }
+                    catch (DbUpdateConcurrencyException)
+                    {
+                        db.ChangeTracker.Clear(); // decided at the same moment; the refusal is still reported below
+                    }
+                }
+
+                await audit.WriteAsync(
+                    new AuditEntry(
+                        AuditAction.ActionRefused,
+                        byUserId,
+                        Subject: TargetOf(action),
+                        IpAddress: remoteIpAddress,
+                        Detail: AuditText.Fit($"{action.Id}; {action.Type}; confirmation refused, still pending: {string.Join(", ", problems.Select(problem => problem.Code))}"),
+                        TargetType: TargetTypeOf(action)),
+                    cancellationToken);
+            },
             cancellationToken);
 
         return new ConfirmResult(ConfirmOutcome.Refused, await ViewAsync(id, cancellationToken), problems);
@@ -520,8 +538,14 @@ internal sealed partial class PendingActionService(
 
         try
         {
-            await db.SaveChangesAsync(cancellationToken);
-            await WriteExpiredAsync(action, cancellationToken);
+            await Transactions.RunAsync(
+                db,
+                async () =>
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                    await WriteExpiredAsync(action, cancellationToken);
+                },
+                cancellationToken);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -535,13 +559,15 @@ internal sealed partial class PendingActionService(
                 AuditAction.ActionExpired,
                 ActorUserId: null,
                 Subject: TargetOf(action),
-                Detail: $"{action.Id}; {action.Type}; not confirmed within {ApprovalRules.Lifetime.TotalHours:0} hours; nothing was applied"),
+                Detail: $"{action.Id}; {action.Type}; not confirmed within {ApprovalRules.Lifetime.TotalHours:0} hours; nothing was applied", TargetType: TargetTypeOf(action)),
             cancellationToken);
 
     private static OperationContext ContextOf(PendingAction action, Guid actorId, OperationOutput output) =>
         new(actorId, action.TargetUserId, action.TargetAgencyId, action.Payload, action.TargetEmail, action.Reason) { Output = output };
 
     // An invite has no account yet, so it is named by a label of its email address, never the address itself.
+    private static string TargetTypeOf(PendingAction action) => action.TargetUserId is not null ? "User" : action.TargetAgencyId is not null ? "Agency" : "Email";
+
     private static string TargetOf(PendingAction action) =>
         (action.TargetUserId ?? action.TargetAgencyId)?.ToString() ?? AuditSubject.ForAttemptedEmail(action.TargetEmail);
 

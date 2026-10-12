@@ -44,6 +44,16 @@ public sealed class ProbeController : ControllerBase
     public IActionResult SignedInOnly() => Ok();
 
     /// <summary>No attribute at all: it must still be protected, by the fallback policy.</summary>
+    /// <summary>Shows a "sensitive record": every successful view is written to the audit log.</summary>
+    [HttpGet("audited/{id}")]
+    [CaseRegister.Api.Security.AuditView("Probe")]
+    public IActionResult Audited(string id) => Ok(new { id });
+
+    /// <summary>The same, but the record is not found: nothing was shown, so nothing is recorded.</summary>
+    [HttpGet("audited-missing/{id}")]
+    [CaseRegister.Api.Security.AuditView("Probe")]
+    public IActionResult AuditedMissing(string id) => NotFound();
+
     [HttpGet("unannotated")]
     public IActionResult Unannotated() => Ok();
 

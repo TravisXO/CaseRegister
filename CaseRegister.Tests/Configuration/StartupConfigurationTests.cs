@@ -83,6 +83,49 @@ public sealed class StartupConfigurationTests : IDisposable
         AssertStartupFailsMentioning(factory, "Turnstile:SecretKey");
     }
 
+    [Fact]
+    public void The_app_fails_at_startup_when_the_audit_key_is_missing()
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings.Remove($"Audit:Keys:{ApiFactory.TestKeyId}"));
+
+        AssertStartupFailsMentioning(factory, $"Audit:Keys:{ApiFactory.TestKeyId}");
+    }
+
+    [Fact]
+    public void The_app_fails_at_startup_when_the_current_audit_key_id_is_missing()
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["Audit:CurrentKeyId"] = " ");
+
+        AssertStartupFailsMentioning(factory, "Audit:CurrentKeyId");
+    }
+
+    [Fact]
+    public void The_app_fails_at_startup_when_the_audit_key_is_too_short_and_never_echoes_it()
+    {
+        var shortKey = Convert.ToBase64String(new byte[16]);
+        using var factory = ApiFactory.WithoutDatabase(settings => settings[$"Audit:Keys:{ApiFactory.TestKeyId}"] = shortKey);
+
+        var failure = AssertStartupFailsMentioning(factory, $"Audit:Keys:{ApiFactory.TestKeyId}");
+
+        Assert.DoesNotContain(shortKey, failure.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_app_fails_at_startup_when_the_audit_key_is_not_base64()
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings[$"Audit:Keys:{ApiFactory.TestKeyId}"] = "not base64 at all!");
+
+        AssertStartupFailsMentioning(factory, $"Audit:Keys:{ApiFactory.TestKeyId}");
+    }
+
+    [Fact]
+    public void The_app_fails_at_startup_when_the_previous_audit_key_is_named_but_missing()
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["Audit:PreviousKeyId"] = "k0");
+
+        AssertStartupFailsMentioning(factory, "Audit:Keys:k0");
+    }
+
     // Positive control: proves the failures above are about the missing settings and nothing else.
     [Fact]
     public void The_app_starts_when_everything_required_is_present()

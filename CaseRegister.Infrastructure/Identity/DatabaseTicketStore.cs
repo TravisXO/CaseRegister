@@ -198,11 +198,17 @@ internal sealed class SessionService(AppDbContext db, IAuditLog audit, TimeProvi
             return EndSessionOutcome.Forbidden;
         }
 
-        await db.Sessions.Where(s => s.Id == sessionId).ExecuteDeleteAsync(cancellationToken);
-        await audit.WriteAsync(
-            new AuditEntry(AuditAction.SessionRevoked, userId, Subject: sessionId.ToString(), IpAddress: remoteIpAddress, Detail: "ended by the member"),
+        // Ending the session and the entry that says so are one transaction.
+        await CaseRegister.Infrastructure.Approvals.Transactions.RunAsync(
+            db,
+            async () =>
+            {
+                await db.Sessions.Where(s => s.Id == sessionId).ExecuteDeleteAsync(cancellationToken);
+                await audit.WriteAsync(
+                    new AuditEntry(AuditAction.SessionRevoked, userId, Subject: sessionId.ToString(), IpAddress: remoteIpAddress, Detail: "ended by the member", TargetType: "Session"),
+                    cancellationToken);
+            },
             cancellationToken);
-
         return EndSessionOutcome.Ended;
     }
 }

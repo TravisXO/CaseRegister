@@ -52,21 +52,31 @@ internal sealed class PractisingCertificateService(
 
         try
         {
-            await db.SaveChangesAsync(cancellationToken);
+            // The certificate and the entry about adding it are one transaction.
+            await CaseRegister.Infrastructure.Approvals.Transactions.RunAsync(
+                db,
+                async () =>
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                    await audit.WriteAsync(
+                        new AuditEntry(
+                            AuditAction.PractisingCertificateAdded,
+                            userId,
+                            Subject: number.ToString(),
+                            IpAddress: remoteIpAddress,
+                            Detail: $"valid {command.ValidFrom:yyyy-MM-dd} to {command.ValidTo:yyyy-MM-dd}",
+                            TargetType: "PractisingCertificate"),
+                        cancellationToken);
+                },
+                cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
+            db.ChangeTracker.Clear();
+
             return new AddCertificateResult(AddCertificateOutcome.Duplicate); // someone added it at the same moment
         }
 
-        await audit.WriteAsync(
-            new AuditEntry(
-                AuditAction.PractisingCertificateAdded,
-                userId,
-                Subject: number.ToString(),
-                IpAddress: remoteIpAddress,
-                Detail: $"valid {command.ValidFrom:yyyy-MM-dd} to {command.ValidTo:yyyy-MM-dd}"),
-            cancellationToken);
 
         return new AddCertificateResult(AddCertificateOutcome.Added, certificate.Id);
     }

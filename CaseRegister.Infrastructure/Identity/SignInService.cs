@@ -2,6 +2,7 @@ using System.Security.Claims;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
+using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -16,7 +17,8 @@ internal sealed class SignInService(
     ITurnstileVerifier turnstile,
     DummyPasswordVerifier dummyVerifier,
     CredentialChecker credentials,
-    IAuditLog audit) : ISignInService
+    IAuditLog audit,
+    Microsoft.Extensions.Logging.ILogger<SignInService> logger) : ISignInService
 {
     public async Task<SignInStatus> SignInAsync(SignInCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default)
     {
@@ -44,9 +46,9 @@ internal sealed class SignInService(
 
         if (!await credentials.VerifyPasswordAsync(user, command.Password, remoteIpAddress, cancellationToken))
         {
-            await audit.WriteAsync(
+            await audit.WriteStandaloneAsync(
                 new AuditEntry(AuditAction.SignInFailed, user.Id, subject, remoteIpAddress, "wrong password"),
-                cancellationToken);
+                logger, cancellationToken);
             return SignInStatus.Failed;
         }
 
@@ -93,7 +95,7 @@ internal sealed class SignInService(
         CancellationToken cancellationToken)
     {
         dummyVerifier.Verify(password);
-        await audit.WriteAsync(new AuditEntry(AuditAction.SignInFailed, userId, subject, remoteIpAddress, reason), cancellationToken);
+        await audit.WriteStandaloneAsync(new AuditEntry(AuditAction.SignInFailed, userId, subject, remoteIpAddress, reason), logger, cancellationToken);
 
         return SignInStatus.Failed;
     }

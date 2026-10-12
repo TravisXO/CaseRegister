@@ -31,11 +31,21 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public const string TurnstileTestSecret = "1x0000000000000000000000000000000AA";
     public const string Password = "correct horse battery staple";
+    public const string TestKeyId = "k1";
+    public const string SecondKeyId = "k2";
+
+    /// <summary>32 bytes, for tests only.</summary>
+    public static readonly string TestKeyBase64 = Convert.ToBase64String(Enumerable.Range(1, 32).Select(index => (byte)index).ToArray());
+
+    public static readonly string SecondKeyBase64 = Convert.ToBase64String(Enumerable.Range(101, 32).Select(index => (byte)index).ToArray());
 
     private readonly Dictionary<string, string?> _settings;
 
     /// <summary>The database owner's connection (the one migrations use). Set for factories that have a database; null otherwise.</summary>
     public string? OwnerConnectionString { get; private init; }
+
+    /// <summary>The file this application writes its audit anchors to.</summary>
+    public string AnchorFilePath => _settings["Audit:AnchorFilePath"]!;
 
     private ApiFactory(string defaultConnectionString, Action<Dictionary<string, string?>>? adjustSettings)
     {
@@ -53,6 +63,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
             // Where invite links point. The test host is not a real site; only the shape matters.
             ["Invites:SetupPageUrl"] = "https://app.example.test/staff/setup",
+
+            // The audit chain: a fixed test key, and a file of its own for the anchors.
+            ["Audit:CurrentKeyId"] = TestKeyId,
+            [$"Audit:Keys:{TestKeyId}"] = TestKeyBase64,
+            ["Audit:AnchorFilePath"] = Path.Combine(Path.GetTempPath(), $"cr-test-anchors-{Guid.NewGuid():N}.jsonl"),
         };
         adjustSettings?.Invoke(_settings);
     }
@@ -63,7 +78,23 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         // This app instance is finished: give back its database connections now.
         PostgresFixture.ReleaseConnections(_settings.GetValueOrDefault("ConnectionStrings:Default"));
+        TryDeleteAnchors();
         GC.SuppressFinalize(this);
+    }
+
+    private void TryDeleteAnchors()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(AnchorFilePath))
+            {
+                File.Delete(AnchorFilePath);
+            }
+        }
+        catch (IOException)
+        {
+            // A temporary file; the operating system clears it in time.
+        }
     }
 
     public FakeTimeProvider Clock { get; } = new(DateTimeOffset.UtcNow);
@@ -125,12 +156,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public ApiClient CreateApiClient() => new(this);
 
     /// <summary>A second, independent instance of the application on the same database, like a second server.</summary>
-    public ApiFactory CreateSibling() => new(_settings["ConnectionStrings:Default"]!, settings =>
+    public ApiFactory CreateSibling(Action<Dictionary<string, string?>>? adjust = null) => new(_settings["ConnectionStrings:Default"]!, settings =>
     {
         foreach (var (key, value) in _settings)
         {
             settings[key] = value;
         }
+
+        adjust?.Invoke(settings);
     });
 
     /// <summary>

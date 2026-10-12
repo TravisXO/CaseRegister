@@ -151,6 +151,8 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("POST", "api/auth/staff-setup/start", "anonymous"),
             new("POST", "api/auth/staff-setup/complete", "anonymous"),
             new("GET", "api/admin/applications", "ViewApplications"),
+            new("GET", "api/audit/entries", "ReadAuditLog"),
+            new("POST", "api/audit/verify", "VerifyAuditLog"),
 
             // Admin actions: each has the named policy for what it does, and nothing is left to a bare [Authorize].
             new("GET", "api/admin/pending-actions", "ViewPendingActions"),

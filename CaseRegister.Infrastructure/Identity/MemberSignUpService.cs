@@ -7,6 +7,7 @@ using CaseRegister.Domain.Agencies;
 using CaseRegister.Domain.Applications;
 using CaseRegister.Domain.Certificates;
 using CaseRegister.Infrastructure.Approvals;
+using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,7 @@ internal sealed class MemberSignUpService(
     ITurnstileVerifier turnstile,
     IOptions<MembershipOptions> membership,
     IAuditLog audit,
+    Microsoft.Extensions.Logging.ILogger<MemberSignUpService> logger,
     TimeProvider time) : IMemberSignUpService
 {
     private sealed record Claims(
@@ -221,14 +223,14 @@ internal sealed class MemberSignUpService(
     {
         _ = hasher.HashPassword(new ApplicationUser(), claims.Password);
 
-        await audit.WriteAsync(
+        await audit.WriteStandaloneAsync(
             new AuditEntry(
                 AuditAction.MemberSignUpIgnored,
                 ActorUserId: null,
                 Subject: AuditSubject.ForAttemptedEmail(claims.Email),
                 IpAddress: remoteIpAddress,
                 Detail: detail),
-            cancellationToken);
+            logger, cancellationToken);
     }
 
     private async Task<ApplicationConcerns> FlagsForAsync(MembershipNumber number, Guid userId, ApplicationConcerns start, CancellationToken cancellationToken) =>

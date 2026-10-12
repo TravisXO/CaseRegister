@@ -24,7 +24,6 @@ internal sealed class RoleAssignmentService(
 
     public async Task<RoleChangeResult> ChangeRolesAsync(RoleChange change, CancellationToken cancellationToken = default)
     {
-        RolePlan? applied = null;
         RoleChangeResult? result = null;
 
         // All or nothing: the roles, the new security stamp and ending the sessions succeed together or not at all.
@@ -45,16 +44,13 @@ internal sealed class RoleAssignmentService(
             }
 
             await ApplyAsync(outcome.Plan, cancellationToken);
+
+            // The entry is written in the same transaction as the change: neither exists without the other.
+            await audit.WriteAsync(AuditEntryFor(outcome.Plan, change.ChangedByUserId, approvalNote: null), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            applied = outcome.Plan;
             result = RoleChangeResult.Done;
         });
-
-        if (applied is not null)
-        {
-            await audit.WriteAsync(AuditEntryFor(applied, change.ChangedByUserId, approvalNote: null), cancellationToken);
-        }
 
         return result!;
     }
@@ -116,6 +112,9 @@ internal sealed class RoleAssignmentService(
             AuditAction.RolesChanged,
             changedBy,
             Subject: plan.User.Id.ToString(),
+            TargetType: "User",
+            Before: new { roles = plan.Before.Select(role => role.ToString()) },
+            After: new { roles = plan.After.Select(role => role.ToString()) },
             Detail: AuditText.Fit(
                 $"added: {string.Join(',', plan.ToAdd)}; removed: {string.Join(',', plan.ToRemove)}; "
                 + $"before: {string.Join(',', plan.Before)}; after: {string.Join(',', plan.After)}"

@@ -498,3 +498,6 @@ secrets/
 *.p12
 *.key
 *.pem
+
+# Local audit anchors (Development)
+App_Data/

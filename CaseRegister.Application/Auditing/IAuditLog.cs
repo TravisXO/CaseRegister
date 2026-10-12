@@ -47,6 +47,12 @@ public enum AuditAction
     StaffInviteCreated,
     StaffSetupCompleted,
     StaffSetupFailed,
+
+    // The audit log itself.
+    AuditLogRead,
+    AuditVerified,
+    AuditAnchored,
+    RecordViewed,
 }
 
 /// <param name="Action">What happened.</param>
@@ -54,12 +60,18 @@ public enum AuditAction
 /// <param name="Subject">What was acted on, such as the email a sign-in was attempted with.</param>
 /// <param name="IpAddress">Where the request came from.</param>
 /// <param name="Detail">Short, non-sensitive context. Never a password, token or personal identifier.</param>
+/// <param name="TargetType">What kind of thing Subject is (User, Agency, ...). Worked out from the action when left out.</param>
+/// <param name="Before">The state before, as an object to be written as JSON. Secrets are stripped and size is capped.</param>
+/// <param name="After">The state after.</param>
 public sealed record AuditEntry(
     AuditAction Action,
     Guid? ActorUserId = null,
     string? Subject = null,
     string? IpAddress = null,
-    string? Detail = null);
+    string? Detail = null,
+    string? TargetType = null,
+    object? Before = null,
+    object? After = null);
 
 /// <summary>
 /// Records security-relevant events. This interface is the stable contract: the implementation is

@@ -530,6 +530,48 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.AuditChainHead", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly?>("LastAnchorDate")
+                        .HasColumnType("date")
+                        .HasColumnName("last_anchor_date");
+
+                    b.Property<string>("LastHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_hash");
+
+                    b.Property<long>("LastSequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_sequence");
+
+                    b.Property<bool>("LegacyImported")
+                        .HasColumnType("boolean")
+                        .HasColumnName("legacy_imported");
+
+                    b.HasKey("Id")
+                        .HasName("pk_audit_chain_head");
+
+                    b.ToTable("audit_chain_head", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_audit_chain_head_single_row", "id = 1");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            LastHash = "0000000000000000000000000000000000000000000000000000000000000000",
+                            LastSequence = 0L,
+                            LegacyImported = false
+                        });
+                });
+
             modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.AuditLogRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -542,9 +584,37 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("action");
 
+                    b.Property<string>("ActorRole")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("actor_role");
+
+                    b.Property<string>("ActorType")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("actor_type");
+
                     b.Property<Guid?>("ActorUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("actor_user_id");
+
+                    b.Property<string>("AfterJson")
+                        .HasColumnType("text")
+                        .HasColumnName("after_json");
+
+                    b.Property<Guid?>("AgencyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agency_id");
+
+                    b.Property<string>("BeforeJson")
+                        .HasColumnType("text")
+                        .HasColumnName("before_json");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("correlation_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -555,15 +625,46 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("detail");
 
+                    b.Property<string>("EntryHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("entry_hash");
+
                     b.Property<string>("IpAddress")
                         .HasMaxLength(45)
                         .HasColumnType("character varying(45)")
                         .HasColumnName("ip_address");
 
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("key_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("PreviousHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("previous_hash");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sequence");
+
                     b.Property<string>("Subject")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
-                        .HasColumnName("subject");
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetType")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("target_type");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -578,8 +679,21 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_audit_log");
 
-                    b.HasIndex("CreatedAt")
-                        .HasDatabaseName("ix_audit_log_created_at");
+                    b.HasIndex("Action")
+                        .HasDatabaseName("ix_audit_log_action");
+
+                    b.HasIndex("ActorUserId")
+                        .HasDatabaseName("ix_audit_log_actor_user_id");
+
+                    b.HasIndex("AgencyId")
+                        .HasDatabaseName("ix_audit_log_agency_id");
+
+                    b.HasIndex("OccurredAt")
+                        .HasDatabaseName("ix_audit_log_occurred_at");
+
+                    b.HasIndex("Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("ix_audit_log_sequence");
 
                     b.ToTable("audit_log", (string)null);
                 });

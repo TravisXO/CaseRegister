@@ -60,7 +60,8 @@ public partial class AppRoleGrantsTests(PostgresFixture postgres)
     }
 
     private const string InsertAuditRow =
-        "INSERT INTO audit_log (id, action, created_at, updated_at) VALUES (gen_random_uuid(), 'Probe', now(), now())";
+        "INSERT INTO audit_log (id, sequence, occurred_at, actor_type, action, previous_hash, entry_hash, key_id, created_at, updated_at) "
+        + "VALUES (gen_random_uuid(), 1, now(), 'system', 'Probe', repeat('0', 64), repeat('a', 64), 'k1', now(), now())";
 
     [Fact]
     public async Task The_app_role_can_add_and_read_audit_rows()

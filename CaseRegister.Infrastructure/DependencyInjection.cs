@@ -45,7 +45,7 @@ public static class DependencyInjection
         AddKeyProtection(services, configuration);
         AddExternalClients(services);
 
-        services.AddScoped<IAuditLog, DatabaseAuditLog>();
+        AddAudit(services);
         services.AddScoped<DemoDataSeeder>();
 
         return services;
@@ -164,6 +164,47 @@ public static class DependencyInjection
         services.AddSingleton<ITicketStore, DatabaseTicketStore>();
     }
 
+    private static void AddAudit(IServiceCollection services)
+    {
+        // The keys come from configuration (user-secrets, then environment variables) and are never in code. Startup fails without them.
+        services.AddSingleton<IValidateOptions<AuditOptions>, AuditOptionsValidator>();
+        services.AddOptions<AuditOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+            {
+                var section = configuration.GetSection(AuditOptions.SectionName);
+                options.CurrentKeyId = section["CurrentKeyId"] ?? string.Empty;
+                options.PreviousKeyId = section["PreviousKeyId"];
+                options.AnchorFilePath = section["AnchorFilePath"];
+                foreach (var key in section.GetSection("Keys").GetChildren())
+                {
+                    options.Keys[key.Key] = key.Value ?? string.Empty;
+                }
+            })
+            .ValidateOnStart();
+
+        services.AddSingleton<IAuditKeyring, AuditKeyring>();
+
+        // A local file for now; Cloudflare R2 and a scheduled job come later, behind the same interface.
+        services.AddSingleton<IAuditAnchorSink>(provider =>
+        {
+            var path = provider.GetRequiredService<IOptions<AuditOptions>>().Value.AnchorFilePath;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return new NoAuditAnchorSink();
+            }
+
+            var root = provider.GetRequiredService<Microsoft.Extensions.Hosting.IHostEnvironment>().ContentRootPath;
+
+            return new FileAuditAnchorSink(Path.IsPathRooted(path) ? path : Path.Combine(root, path));
+        });
+
+        services.AddScoped<AuditChainStore>();
+        services.AddScoped<IAuditLog, ChainedAuditLog>();
+        services.AddScoped<IAuditAnchoring, AuditAnchoring>();
+        services.AddScoped<IAuditVerifier, AuditVerifier>();
+        services.AddScoped<IAuditReader, AuditReader>();
+    }
+
     private static void AddAdminApprovals(IServiceCollection services)
     {
         // One operation per kind of admin action. The engine and the immediate actions find them by type.
@@ -241,4 +282,11 @@ public static class DependencyInjection
 
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>(client => client.Timeout = TimeSpan.FromSeconds(5));
     }
+}
+
+/// <summary>Stops startup, with the reason, if the audit keys are not usable.</summary>
+internal sealed class AuditOptionsValidator : IValidateOptions<AuditOptions>
+{
+    public ValidateOptionsResult Validate(string? name, AuditOptions options) =>
+        options.Problem() is { } problem ? ValidateOptionsResult.Fail(problem) : ValidateOptionsResult.Success;
 }

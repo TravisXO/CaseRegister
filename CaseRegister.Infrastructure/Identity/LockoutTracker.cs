@@ -1,5 +1,6 @@
 using CaseRegister.Application.Auditing;
 using CaseRegister.Domain.Accounts;
+using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,7 @@ internal sealed class LockoutTracker(
     AppDbContext context,
     UserManager<ApplicationUser> users,
     IAuditLog audit,
+    Microsoft.Extensions.Logging.ILogger<LockoutTracker> logger,
     TimeProvider timeProvider)
 {
     public const int SuspensionThreshold = 3;
@@ -24,7 +26,7 @@ internal sealed class LockoutTracker(
     {
         context.LockoutEvents.Add(new LockoutEvent(user.Id));
         await context.SaveChangesAsync(cancellationToken);
-        await audit.WriteAsync(new AuditEntry(AuditAction.AccountLockedOut, user.Id, IpAddress: ipAddress), cancellationToken);
+        await audit.WriteStandaloneAsync(new AuditEntry(AuditAction.AccountLockedOut, user.Id, IpAddress: ipAddress), logger, cancellationToken);
 
         var since = timeProvider.GetUtcNow() - SuspensionWindow;
         var recent = await context.LockoutEvents.CountAsync(e => e.UserId == user.Id && e.CreatedAt >= since, cancellationToken);
@@ -57,12 +59,12 @@ internal sealed class LockoutTracker(
         // A new security stamp ends every session this account has open.
         await users.UpdateSecurityStampAsync(user);
 
-        await audit.WriteAsync(
+        await audit.WriteStandaloneAsync(
             new AuditEntry(
                 AuditAction.AccountSuspended,
                 user.Id,
                 IpAddress: ipAddress,
                 Detail: $"{SuspensionThreshold} lockouts within {SuspensionWindow.TotalHours:0} hours"),
-            cancellationToken);
+            logger, cancellationToken);
     }
 }

@@ -106,7 +106,9 @@ internal sealed class AccountAdministrationService(
                     actorId,
                     Subject: plan.EffectSubject ?? (userId ?? agencyId)!.Value.ToString(),
                     IpAddress: remoteIpAddress,
-                    Detail: AuditText.Fit($"immediate; before: {plan.Before}; after: {plan.After}; reason: {reason.Trim()}")),
+                    Detail: AuditText.Fit($"immediate; before: {plan.Before}; after: {plan.After}; reason: {reason.Trim()}"),
+                    Before: new { state = plan.Before },
+                    After: new { state = plan.After }),
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -180,22 +182,20 @@ internal sealed class AdminSeeder(
             }
 
             await roles.ApplyAsync(plan.Plan, cancellationToken);
+            // The entry is written inside the transaction that creates the admin.
+            await audit.WriteAsync(
+                new AuditEntry(
+                    AuditAction.AdminSeeded,
+                    ActorUserId: null,
+                    Subject: user.Id.ToString(),
+                    TargetType: "User",
+                    Detail: $"created an admin from the command line; active admins before: {activeBefore}; two-factor enrolment required at first sign-in"),
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
             result = new SeedAdminResult(SeedAdminOutcome.Created, [], user.Id);
         });
 
-        if (result!.Outcome == SeedAdminOutcome.Created)
-        {
-            await audit.WriteAsync(
-                new AuditEntry(
-                    AuditAction.AdminSeeded,
-                    ActorUserId: null,
-                    Subject: result.UserId.ToString(),
-                    Detail: $"created an admin from the command line; active admins before: {activeBefore}; two-factor enrolment required at first sign-in"),
-                cancellationToken);
-        }
-
-        return result;
+        return result!;
     }
 }

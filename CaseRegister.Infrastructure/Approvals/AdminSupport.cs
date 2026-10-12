@@ -92,3 +92,27 @@ internal static class AuditText
 
     public static string Fit(string text) => text.Length <= Limit ? text : text[..(Limit - 1)] + "…";
 }
+
+internal static class Transactions
+{
+    /// <summary>
+    /// Runs the work in the caller's transaction if there is one, or in a new one that commits at the end. Used so
+    /// that a change and the audit entry about it always succeed or fail together.
+    /// </summary>
+    public static async Task RunAsync(AppDbContext db, Func<Task> work, CancellationToken cancellationToken)
+    {
+        if (db.Database.CurrentTransaction is not null)
+        {
+            await work();
+            return;
+        }
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await work();
+            await transaction.CommitAsync(cancellationToken);
+        });
+    }
+}

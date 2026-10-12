@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
+using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -18,6 +19,7 @@ internal sealed class TwoFactorService(
     TwoFactorAttemptLimiter limiter,
     CredentialChecker credentials,
     IAuditLog audit,
+    Microsoft.Extensions.Logging.ILogger<TwoFactorService> logger,
     TimeProvider timeProvider) : ITwoFactorService
 {
     /// <summary>The name an authenticator app shows for this service.</summary>
@@ -258,9 +260,9 @@ internal sealed class TwoFactorService(
         if (!valid)
         {
             await credentials.RegisterFailureAsync(user, remoteIpAddress, cancellationToken);
-            await audit.WriteAsync(
+            await audit.WriteStandaloneAsync(
                 new AuditEntry(AuditAction.TwoFactorFailed, user.Id, IpAddress: remoteIpAddress, Detail: "invalid code"),
-                cancellationToken);
+                logger, cancellationToken);
 
             return new Check(TwoFactorOutcome.Failed);
         }

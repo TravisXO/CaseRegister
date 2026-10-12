@@ -49,12 +49,48 @@ internal sealed class AuditLogRecordConfiguration : IEntityTypeConfiguration<Aud
     {
         builder.ToTable("audit_log");
 
+        builder.Property(record => record.Sequence).IsRequired();
+        builder.HasIndex(record => record.Sequence).IsUnique(); // the chain has one entry per number
+
+        builder.Property(record => record.OccurredAt).HasColumnType("timestamp with time zone");
+        builder.HasIndex(record => record.OccurredAt);
+
+        builder.Property(record => record.ActorType).HasMaxLength(10).IsRequired();
+        builder.Property(record => record.ActorRole).HasMaxLength(200);
         builder.Property(record => record.Action).HasMaxLength(50).IsRequired();
-        builder.Property(record => record.Subject).HasMaxLength(256);
+        builder.HasIndex(record => record.Action);
+        builder.HasIndex(record => record.ActorUserId);
+        builder.Property(record => record.TargetType).HasMaxLength(40);
+        builder.Property(record => record.Subject).HasMaxLength(256).HasColumnName("target_id");
+        builder.HasIndex(record => record.AgencyId);
+        builder.Property(record => record.CorrelationId).HasMaxLength(100);
         builder.Property(record => record.IpAddress).HasMaxLength(45);
         builder.Property(record => record.Detail).HasMaxLength(500);
 
-        builder.HasIndex(record => record.CreatedAt);
+        // JSON kept as text, already canonical: jsonb would reorder keys and break the hash.
+        builder.Property(record => record.BeforeJson).HasColumnName("before_json");
+        builder.Property(record => record.AfterJson).HasColumnName("after_json");
+
+        // SHA-256 as hex: 64 characters.
+        builder.Property(record => record.PreviousHash).HasMaxLength(64).IsRequired();
+        builder.Property(record => record.EntryHash).HasMaxLength(64).IsRequired();
+        builder.Property(record => record.KeyId).HasMaxLength(50).IsRequired();
+    }
+}
+
+internal sealed class AuditChainHeadConfiguration : IEntityTypeConfiguration<AuditChainHead>
+{
+    public void Configure(EntityTypeBuilder<AuditChainHead> builder)
+    {
+        builder.ToTable("audit_chain_head", table => table.HasCheckConstraint("ck_audit_chain_head_single_row", "id = 1"));
+
+        builder.HasKey(head => head.Id);
+        builder.Property(head => head.Id).ValueGeneratedNever();
+        builder.Property(head => head.LastHash).HasMaxLength(64).IsRequired();
+        builder.Property(head => head.LastAnchorDate).HasColumnType("date");
+
+        // The one row, there from the start: no hash yet, and nothing imported.
+        builder.HasData(new AuditChainHead { Id = AuditChainHead.OnlyId, LastSequence = 0, LastHash = new string('0', 64), LegacyImported = false });
     }
 }
 

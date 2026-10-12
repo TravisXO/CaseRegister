@@ -6,6 +6,7 @@ using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Invites;
 using CaseRegister.Infrastructure.Approvals;
+using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -80,6 +81,7 @@ internal sealed class StaffSetupService(
     AuthenticatorKeyProtector keyProtector,
     SetupFailureTracker failures,
     IAuditLog audit,
+    Microsoft.Extensions.Logging.ILogger<StaffSetupService> logger,
     TimeProvider time) : IStaffSetupService
 {
     public const string Issuer = "CaseRegister";
@@ -253,7 +255,7 @@ internal sealed class StaffSetupService(
     }
 
     private Task LogFailureAsync(Guid? userId, string reason, string? remoteIpAddress, CancellationToken cancellationToken) =>
-        audit.WriteAsync(
+        audit.WriteStandaloneAsync(
             new AuditEntry(AuditAction.StaffSetupFailed, userId, Subject: userId?.ToString(), IpAddress: remoteIpAddress, Detail: AuditText.Fit($"setup refused: {reason}; failures from this address this hour: {failures.Count(remoteIpAddress)}")),
-            cancellationToken);
+            logger, cancellationToken);
 }

@@ -47,11 +47,22 @@ REVOKE CREATE ON SCHEMA public FROM case_register_app;
 -- Row-level data access on existing tables.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO case_register_app;
 
--- The audit log is append-only: the application can add rows and read them, never change or remove one.
+-- The audit log is append-only: the application can add rows and read them, never change or remove one. (A trigger
+-- refuses updates, deletes and truncates for everyone as well; this is the first lock, that is the second.)
+-- The table it replaced is read-only to the application, kept only so its rows can be brought into the chain.
+-- The chain head is the one row the application updates (it holds the lock for appending); it can never add or remove one.
 DO $$
 BEGIN
     IF to_regclass('public.audit_log') IS NOT NULL THEN
         REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.audit_log FROM case_register_app;
+    END IF;
+
+    IF to_regclass('public.audit_log_legacy') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.audit_log_legacy FROM case_register_app;
+    END IF;
+
+    IF to_regclass('public.audit_chain_head') IS NOT NULL THEN
+        REVOKE INSERT, DELETE, TRUNCATE ON TABLE public.audit_chain_head FROM case_register_app;
     END IF;
 END
 $$;
