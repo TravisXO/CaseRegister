@@ -43,7 +43,7 @@ public sealed partial class HaveIBeenPwnedClient(HttpClient httpClient, ILogger<
 
             return ContainsMatch(body, suffix) ? BreachCheckResult.Breached : BreachCheckResult.NotBreached;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             LogUnavailable(logger, ex.GetType().Name);
             return BreachCheckResult.Unavailable;

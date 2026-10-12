@@ -1,4 +1,7 @@
+using CaseRegister.Api.Hardening;
 using CaseRegister.Api.Security;
+using CaseRegister.Application.Auditing;
+using CaseRegister.Infrastructure.Auditing;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using CaseRegister.Application.Accounts;
@@ -40,15 +43,24 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public static readonly string SecondKeyBase64 = Convert.ToBase64String(Enumerable.Range(101, 32).Select(index => (byte)index).ToArray());
 
     private readonly Dictionary<string, string?> _settings;
+    private readonly string _anchorFilePath;
 
     /// <summary>The database owner's connection (the one migrations use). Set for factories that have a database; null otherwise.</summary>
     public string? OwnerConnectionString { get; private init; }
 
     /// <summary>The file this application writes its audit anchors to.</summary>
-    public string AnchorFilePath => _settings["Audit:AnchorFilePath"]!;
+    public string AnchorFilePath => _anchorFilePath;
 
-    private ApiFactory(string defaultConnectionString, Action<Dictionary<string, string?>>? adjustSettings)
+    /// <summary>The environment the application starts in. "Testing" unless a test is about another one (never Development: that loads the real secrets).</summary>
+    public string EnvironmentName { get; private init; } = "Testing";
+
+    /// <summary>What would have gone to the console, after redaction.</summary>
+    public CapturingLogEventSink LogOutput { get; } = new();
+
+    private ApiFactory(string defaultConnectionString, Action<Dictionary<string, string?>>? adjustSettings, string? anchorFilePath = null)
     {
+        // The local anchor file is for Development only, so the application is never told about it: the test host is given the store directly.
+        _anchorFilePath = anchorFilePath ?? Path.Combine(Path.GetTempPath(), $"cr-test-anchors-{Guid.NewGuid():N}.jsonl");
         _settings = new Dictionary<string, string?>
         {
             ["ConnectionStrings:Default"] = defaultConnectionString,
@@ -64,10 +76,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             // Where invite links point. The test host is not a real site; only the shape matters.
             ["Invites:SetupPageUrl"] = "https://app.example.test/staff/setup",
 
-            // The audit chain: a fixed test key, and a file of its own for the anchors.
+            // The audit chain: a fixed test key.
             ["Audit:CurrentKeyId"] = TestKeyId,
             [$"Audit:Keys:{TestKeyId}"] = TestKeyBase64,
-            ["Audit:AnchorFilePath"] = Path.Combine(Path.GetTempPath(), $"cr-test-anchors-{Guid.NewGuid():N}.jsonl"),
         };
         adjustSettings?.Invoke(_settings);
     }
@@ -117,8 +128,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public int StaffSetupPerIpPerMinute { get; init; } = 10_000;
 
+    /// <summary>How long a request may take. Null keeps the real limit.</summary>
+    public TimeSpan? RequestTimeout { get; init; }
+
+    /// <summary>True leaves the rate limits as configured, instead of raising them so tests do not meet them. For tests of the settings themselves.</summary>
+    public bool RealLimits { get; init; }
+
     /// <summary>Two-factor codes tried per user per minute. High by default so only the rate-limit tests meet it.</summary>
     public int TwoFactorAttemptsPerMinute { get; init; } = 10_000;
+
+    /// <summary>Requests of any kind per address per minute. High by default so only the tests of that limit meet it.</summary>
+    public int GlobalPerIpPerMinute { get; init; } = 100_000;
 
     /// <summary>The application with a database behind it: migrated, with the least-privilege role and its grants.</summary>
     public static async Task<ApiFactory> CreateAsync(
@@ -128,7 +148,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         int signInPerAccountPerHour = 10_000,
         int twoFactorAttemptsPerMinute = 10_000,
         int signUpPerIpPerHour = 10_000,
-        int staffSetupPerIpPerMinute = 10_000)
+        int staffSetupPerIpPerMinute = 10_000,
+        string? anchorFilePath = null,
+        string environmentName = "Testing",
+        TimeSpan? requestTimeout = null,
+        int globalPerIpPerMinute = 100_000)
     {
         await postgres.EnsureAppRoleAsync();
         var owner = await postgres.CreateDatabaseAsync();
@@ -136,8 +160,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         await PostgresFixture.ExecuteAsync(owner, await File.ReadAllTextAsync(GrantScriptPath));
         PostgresFixture.ReleaseConnections(owner);
 
-        return new ApiFactory(PostgresFixture.AsAppRole(owner), adjustSettings)
+        return new ApiFactory(PostgresFixture.AsAppRole(owner), adjustSettings, anchorFilePath)
         {
+            EnvironmentName = environmentName,
+            RequestTimeout = requestTimeout,
+            GlobalPerIpPerMinute = globalPerIpPerMinute,
             SignInPerIpPerMinute = signInPerIpPerMinute,
             SignInPerAccountPerHour = signInPerAccountPerHour,
             TwoFactorAttemptsPerMinute = twoFactorAttemptsPerMinute,
@@ -148,8 +175,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>The application with no database behind it, for tests of configuration only. It never connects.</summary>
-    public static ApiFactory WithoutDatabase(Action<Dictionary<string, string?>>? adjustSettings = null) =>
-        new("Host=localhost;Port=1;Database=unused;Username=unused;Password=unused;Timeout=1", adjustSettings);
+    public static ApiFactory WithoutDatabase(Action<Dictionary<string, string?>>? adjustSettings = null, string environmentName = "Testing", bool realLimits = false, TimeSpan? requestTimeout = null, int globalPerIpPerMinute = 100_000) =>
+        new("Host=localhost;Port=1;Database=unused;Username=unused;Password=unused;Timeout=1", adjustSettings) { EnvironmentName = environmentName, RealLimits = realLimits, RequestTimeout = requestTimeout, GlobalPerIpPerMinute = globalPerIpPerMinute };
 
     private static string GrantScriptPath => Path.Combine(SolutionGraph.SolutionRoot, "database", "app-role-grants.sql");
 
@@ -164,7 +191,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         }
 
         adjust?.Invoke(settings);
-    });
+    }, _anchorFilePath) { EnvironmentName = EnvironmentName };
 
     /// <summary>
     /// Creates an account. By default it already has two-factor switched on (with a key the test can
@@ -364,7 +391,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseContentRoot(Path.Combine(SolutionGraph.SolutionRoot, "CaseRegister.Api"));
 
         // Not Development: that would load user-secrets and migrate on startup.
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(EnvironmentName);
 
         foreach (var (key, value) in _settings)
         {
@@ -391,15 +418,38 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<IPasswordHasher<ApplicationUser>>(provider =>
                 new CountingPasswordHasher(provider.GetRequiredService<IOptions<PasswordHasherOptions>>(), PasswordVerifications));
 
-            services.PostConfigure<RateLimitingOptions>(options =>
+            if (!RealLimits)
             {
+                services.PostConfigure<RateLimitingOptions>(options =>
+                {
                 options.SignInPerIpPerMinute = SignInPerIpPerMinute;
                 options.SignInPerAccountPerHour = SignInPerAccountPerHour;
                 options.SignUpPerIpPerHour = SignUpPerIpPerHour;
                 options.StaffSetupPerIpPerMinute = StaffSetupPerIpPerMinute;
-            });
+                options.GlobalPerIpPerMinute = GlobalPerIpPerMinute;
+                });
 
-            services.PostConfigure<TwoFactorOptions>(options => options.AttemptsPerMinutePerUser = TwoFactorAttemptsPerMinute);
+                services.PostConfigure<TwoFactorOptions>(options => options.AttemptsPerMinutePerUser = TwoFactorAttemptsPerMinute);
+            }
+
+            if (RequestTimeout is { } timeout)
+            {
+                services.PostConfigure<Microsoft.AspNetCore.Http.Timeouts.RequestTimeoutOptions>(options =>
+                    options.DefaultPolicy = new Microsoft.AspNetCore.Http.Timeouts.RequestTimeoutPolicy { Timeout = timeout, TimeoutStatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status504GatewayTimeout });
+            }
+
+            // The local file store is for Development only, so it is handed to the test host directly. A blank path means no store.
+            services.RemoveAll<IAuditAnchorSink>();
+            if (string.IsNullOrWhiteSpace(_anchorFilePath))
+            {
+                services.AddSingleton<IAuditAnchorSink>(new NoAuditAnchorSink());
+            }
+            else
+            {
+                services.AddSingleton<IAuditAnchorSink>(new FileAuditAnchorSink(_anchorFilePath));
+            }
+
+            services.AddSingleton(new LogOutputOverride(LogOutput));
 
             // Test-only endpoints (see ProbeController).
             services.AddControllers().AddApplicationPart(typeof(ProbeController).Assembly);

@@ -21,6 +21,8 @@ public sealed class AuthenticatorKeyProtector(IDataProtectionProvider provider)
 /// <summary>The two-factor attempt limit. The default is the real one; tests raise it.</summary>
 public sealed class TwoFactorOptions
 {
+    public const string SectionName = "TwoFactor";
+
     /// <summary>Codes checked per user per minute, right or wrong.</summary>
     public int AttemptsPerMinutePerUser { get; set; } = 5;
 }

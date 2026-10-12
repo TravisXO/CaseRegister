@@ -1,3 +1,4 @@
+using CaseRegister.Api.Hardening;
 using System.Security.Claims;
 using CaseRegister.Api.Security;
 using CaseRegister.Application.Auth;
@@ -15,6 +16,7 @@ namespace CaseRegister.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/auth")]
+[RequestBodyLimit(RequestLimits.AuthBodyBytes)]
 public sealed class AuthController(
     ISignInService signInService,
     IAccountPasswordService passwordService,

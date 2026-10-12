@@ -1,3 +1,4 @@
+using CaseRegister.Api.Hardening;
 using CaseRegister.Api.Security;
 using CaseRegister.Application.Applications;
 using Microsoft.AspNetCore.Authorization;
@@ -12,6 +13,7 @@ namespace CaseRegister.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/auth")]
+[RequestBodyLimit(RequestLimits.AuthBodyBytes)]
 public sealed class OnboardingController(IMemberSignUpService signUp, IStaffSetupService staffSetup) : ControllerBase
 {
     private const string TokenInvalidDetail = "This setup link is not valid. Ask an admin for a new invite.";
