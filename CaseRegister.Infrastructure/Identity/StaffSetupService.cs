@@ -143,12 +143,18 @@ internal sealed class StaffSetupService(
         }
 
         var record = await db.Authenticators.SingleOrDefaultAsync(r => r.UserId == user.Id && r.EnabledAt == null, cancellationToken);
+        var now = time.GetUtcNow();
         if (record is null)
         {
-            return new StaffSetupResult(StaffSetupOutcome.NoEnrolmentStarted);
+            // Another request may have finished the setup a moment ago, which also used up the enrolment it was waiting on.
+            // Whether the link is still good is settled first: if it is not, the answer is the same as for any spent link.
+            var current = await db.StaffSetupTokens.AsNoTracking().SingleOrDefaultAsync(t => t.Id == setupToken.Id, cancellationToken);
+
+            return current is null || !current.IsUsable(now)
+                ? new StaffSetupResult(StaffSetupOutcome.InvalidToken)
+                : new StaffSetupResult(StaffSetupOutcome.NoEnrolmentStarted);
         }
 
-        var now = time.GetUtcNow();
         var typed = new string([.. twoFactorCode.Where(character => !char.IsWhiteSpace(character))]);
         if (!Totp.TryMatch(keyProtector.Unprotect(record.EncryptedKey), typed, Totp.CurrentStep(now), null, out var step))
         {

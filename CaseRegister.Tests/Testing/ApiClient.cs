@@ -61,6 +61,18 @@ public sealed class ApiClient
         return await Http.SendAsync(request);
     }
 
+    /// <summary>Sends a body exactly as given (any content type), with the anti-forgery token the way a browser would.</summary>
+    public async Task<HttpResponseMessage> SendContentAsync(HttpMethod method, string path, HttpContent content, bool withCsrfToken = true)
+    {
+        using var request = new HttpRequestMessage(method, new Uri(path, UriKind.Relative)) { Content = content };
+        if (withCsrfToken)
+        {
+            request.Headers.Add(CsrfHeader, await GetCsrfTokenAsync());
+        }
+
+        return await Http.SendAsync(request);
+    }
+
     public Task<HttpResponseMessage> GetAsync(string path, string? forwardedFor = null) =>
         SendAsync(HttpMethod.Get, path, forwardedFor: forwardedFor);
 

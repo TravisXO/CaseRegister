@@ -1,30 +1,45 @@
-**/.classpath
-**/.dockerignore
+# What is left out of the build context, and so can never end up in an image layer.
+
+# Build output
+**/bin/
+**/obj/
+**/TestResults/
+**/App_Data/
+
+# Version control and editors
+.git/
+.gitignore
+.gitattributes
+.vs/
+.vscode/
+.idea/
+**/*.user
+**/*.suo
+
+# Tests are not shipped
+CaseRegister.Tests/
+
+# Notes and tooling for the people who work on the project
+CLAUDE.md
+.claude/
+docs/
+*.md
+scripts/
+database/
+dotnet-tools.json
+
+# Secrets and settings that are only for a developer's machine
 **/.env
-**/.git
-**/.gitignore
-**/.project
-**/.settings
-**/.toolstarget
-**/.vs
-**/.vscode
-**/*.*proj.user
-**/*.dbmdl
-**/*.jfm
-**/azds.yaml
-**/bin
-**/charts
-**/docker-compose*
-**/Dockerfile*
-**/node_modules
-**/npm-debug.log
-**/obj
-**/secrets.dev.yaml
-**/values.dev.yaml
-LICENSE
-README.md
-!**/.gitignore
-!.git/HEAD
-!.git/config
-!.git/packed-refs
-!.git/refs/heads/**
+**/.env.*
+**/secrets.json
+**/*secrets*.json
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.key
+**/appsettings.Development.json
+**/appsettings.*.local.json
+
+# Docker's own files
+Dockerfile
+.dockerignore

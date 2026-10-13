@@ -196,7 +196,7 @@ public class AdminSafetyTests(PostgresFixture postgres)
         var admins = await factory.CreateAdminsAsync(3);
         var (a, b, c) = (admins[0], admins[1], admins[2]);
 
-        for (var round = 0; round < 3; round++)
+        for (var round = 0; round < 10; round++)
         {
             // Each is fine alone: suspending C leaves A and B; taking Admin from B leaves A and C. Together they leave only A.
             var suspendC = await factory.ProposeOkAsync(a, Proposals.ForUser(PendingActionType.SuspendUser, c));
@@ -219,7 +219,9 @@ public class AdminSafetyTests(PostgresFixture postgres)
             gate.SetResult();
             var results = await Task.WhenAll(first, second);
 
-            Assert.Single(results, result => result.Outcome == ConfirmOutcome.Confirmed);
+            // Exactly one goes through and the other is refused for the number of admins: never a different answer, whoever is first.
+            var outcomes = results.Select(result => result.Outcome).Order().ToList();
+            Assert.True(outcomes.SequenceEqual([ConfirmOutcome.Confirmed, ConfirmOutcome.Refused]), $"round {round}: {string.Join(", ", outcomes)}");
             Assert.Equal(2, await ActiveAdmins(factory));
 
             // Put things back for the next round, by hand.

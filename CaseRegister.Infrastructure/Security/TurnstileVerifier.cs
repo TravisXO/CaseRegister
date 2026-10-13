@@ -54,7 +54,7 @@ public sealed partial class TurnstileVerifier(
 
             return result?.Success == true;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException && !cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             // If Cloudflare cannot be reached nobody gets through: fail closed.
             LogFailure(logger, ex.GetType().Name);

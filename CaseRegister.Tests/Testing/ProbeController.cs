@@ -8,6 +8,8 @@ namespace CaseRegister.Tests.Testing;
 /// Endpoints that exist only in tests, to exercise rules the real API does not use yet: every unsafe
 /// HTTP method, a policy that always refuses (a 403), and the client address as the app sees it.
 /// </summary>
+public sealed record ProbeBody(string Name, int Count);
+
 [ApiController]
 [Route("probe")]
 public sealed class ProbeController : ControllerBase
@@ -53,6 +55,45 @@ public sealed class ProbeController : ControllerBase
     [HttpGet("audited-missing/{id}")]
     [CaseRegister.Api.Security.AuditView("Probe")]
     public IActionResult AuditedMissing(string id) => NotFound();
+
+    // --- Hardening: bodies, limits, failures --------------------------------------------------
+
+    /// <summary>A strict body: both fields, nothing else.</summary>
+    [HttpPost("json")]
+    [AllowAnonymous]
+    public IActionResult Json([FromBody] ProbeBody body) => Ok(new { body.Name, body.Count });
+
+    /// <summary>Any JSON at all, to try depth.</summary>
+    [HttpPost("anything")]
+    [AllowAnonymous]
+    public IActionResult Anything([FromBody] System.Text.Json.JsonElement body) => Ok();
+
+    /// <summary>An endpoint with a smaller body limit than the default.</summary>
+    [HttpPost("limited")]
+    [AllowAnonymous]
+    [CaseRegister.Api.Hardening.RequestBodyLimit(32)]
+    public IActionResult Limited([FromBody] System.Text.Json.JsonElement body) => Ok();
+
+    /// <summary>An endpoint that has raised its own limit, as an evidence upload will.</summary>
+    [HttpPost("generous")]
+    [AllowAnonymous]
+    [CaseRegister.Api.Hardening.RequestBodyLimit(1_000_000)]
+    public IActionResult Generous([FromBody] System.Text.Json.JsonElement body) => Ok();
+
+    /// <summary>Fails with a message full of things that must never reach a client.</summary>
+    [HttpGet("throw")]
+    [AllowAnonymous]
+    public IActionResult Throw() => throw new InvalidOperationException($"SELECT secret FROM users WHERE nrc = '123456/78/9' failed on {HttpContext.Request.Path}");
+
+    /// <summary>Never finishes on its own: only the request timeout ends it.</summary>
+    [HttpGet("slow")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Slow(CancellationToken cancellationToken)
+    {
+        await Task.Delay(Timeout.Infinite, cancellationToken);
+
+        return Ok();
+    }
 
     [HttpGet("unannotated")]
     public IActionResult Unannotated() => Ok();

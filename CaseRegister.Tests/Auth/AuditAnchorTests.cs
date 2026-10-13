@@ -92,7 +92,7 @@ public class AuditAnchorTests(PostgresFixture postgres)
         var blocker = Path.GetTempFileName(); // a file where a folder is needed: the anchor file can never be created
         try
         {
-            await using var factory = await ApiFactory.CreateAsync(postgres, settings => settings["Audit:AnchorFilePath"] = Path.Combine(blocker, "anchors.jsonl"));
+            await using var factory = await ApiFactory.CreateAsync(postgres, anchorFilePath: Path.Combine(blocker, "anchors.jsonl"));
 
             await factory.WriteManyAsync(4); // does not throw
 
@@ -109,7 +109,7 @@ public class AuditAnchorTests(PostgresFixture postgres)
     [Fact]
     public async Task With_no_anchor_store_configured_nothing_is_written_and_verification_says_so()
     {
-        await using var factory = await ApiFactory.CreateAsync(postgres, settings => settings["Audit:AnchorFilePath"] = string.Empty);
+        await using var factory = await ApiFactory.CreateAsync(postgres, anchorFilePath: string.Empty);
 
         await factory.WriteManyAsync(5);
 
@@ -226,7 +226,7 @@ public class AuditAnchorTests(PostgresFixture postgres)
     [Fact]
     public async Task With_no_anchor_to_start_from_it_starts_at_the_beginning()
     {
-        await using var factory = await ApiFactory.CreateAsync(postgres, settings => settings["Audit:AnchorFilePath"] = string.Empty);
+        await using var factory = await ApiFactory.CreateAsync(postgres, anchorFilePath: string.Empty);
         await factory.WriteManyAsync(5);
 
         var result = await factory.VerifyAuditAsync(fromLastGoodAnchor: true);
@@ -290,7 +290,7 @@ public class AuditAnchorTests(PostgresFixture postgres)
     public async Task The_anchor_command_has_nothing_to_do_on_an_empty_log_or_without_a_store()
     {
         await using var empty = await ApiFactory.CreateAsync(postgres);
-        await using var noStore = await ApiFactory.CreateAsync(postgres, settings => settings["Audit:AnchorFilePath"] = string.Empty);
+        await using var noStore = await ApiFactory.CreateAsync(postgres, anchorFilePath: string.Empty);
         await noStore.WriteManyAsync(2);
 
         var (emptyExit, emptyTerminal) = await RunAsync(empty, "anchor-audit");

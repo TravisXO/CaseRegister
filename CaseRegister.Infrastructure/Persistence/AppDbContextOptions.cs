@@ -25,6 +25,10 @@ internal static class AppDbContextOptions
                 npgsql.CommandTimeout(CommandTimeoutSeconds);
                 npgsql.MigrationsHistoryTable("__ef_migrations_history");
             })
-            .UseSnakeCaseNamingConvention();
+            .UseSnakeCaseNamingConvention()
+
+            // Stated, though off by default: parameter values (which can be NRCs or tokens) must never reach a log, here or anywhere.
+            .EnableSensitiveDataLogging(false)
+            .EnableDetailedErrors(false);
     }
 }

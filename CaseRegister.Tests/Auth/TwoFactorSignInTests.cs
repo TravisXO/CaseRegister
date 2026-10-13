@@ -114,14 +114,19 @@ public class TwoFactorSignInTests(PostgresFixture postgres)
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         var user = await factory.CreateUserAsync(Email);
-        var one = await TwoFactorFlows.AtTheCodeStepAsync(factory, user);
-        var two = await TwoFactorFlows.AtTheCodeStepAsync(factory, user);
-        var code = factory.NextTotpCode(user);
 
-        var results = await Task.WhenAll(one.VerifyTwoFactorAsync(code), two.VerifyTwoFactorAsync(code));
+        // Several rounds, each with a new code, and the exact outcomes every time.
+        for (var round = 0; round < 8; round++)
+        {
+            var one = await TwoFactorFlows.AtTheCodeStepAsync(factory, user);
+            var two = await TwoFactorFlows.AtTheCodeStepAsync(factory, user);
+            var code = factory.NextTotpCode(user);
 
-        Assert.Single(results, result => result.StatusCode == HttpStatusCode.OK);
-        Assert.Single(results, result => result.StatusCode == HttpStatusCode.Unauthorized);
+            var results = await Task.WhenAll(one.VerifyTwoFactorAsync(code), two.VerifyTwoFactorAsync(code));
+
+            var statuses = results.Select(result => result.StatusCode).Order().ToList();
+            Assert.True(statuses.SequenceEqual([HttpStatusCode.OK, HttpStatusCode.Unauthorized]), $"round {round}: {string.Join(", ", statuses)}");
+        }
     }
 
     // --- Failing safely ------------------------------------------------------------------------

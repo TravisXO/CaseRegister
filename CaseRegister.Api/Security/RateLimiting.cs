@@ -15,9 +15,14 @@ public static class RateLimitPolicies
     public const string StaffSetupPerIp = "staff-setup-per-ip";
 }
 
-/// <summary>The sign-in limits. The defaults are the real ones; tests lower or raise them.</summary>
+/// <summary>The request limits. The defaults are the real ones; the "RateLimiting" section of the configuration and tests change them.</summary>
 public sealed class RateLimitingOptions
 {
+    public const string SectionName = "RateLimiting";
+
+    /// <summary>Requests of any kind per client address per minute. A backstop above the specific limits.</summary>
+    public int GlobalPerIpPerMinute { get; set; } = 300;
+
     public int SignInPerIpPerMinute { get; set; } = 5;
 
     public int SignInPerAccountPerHour { get; set; } = 10;
@@ -102,5 +107,26 @@ public static class TooManyRequests
         {
             StatusCode = StatusCodes.Status429TooManyRequests,
         };
+    }
+}
+
+/// <summary>Stops startup, naming the setting and never its value, if a limit is not a positive number.</summary>
+public sealed class RateLimitingOptionsValidator : IValidateOptions<RateLimitingOptions>
+{
+    public ValidateOptionsResult Validate(string? name, RateLimitingOptions options)
+    {
+        var problems = new[]
+        {
+            (nameof(RateLimitingOptions.GlobalPerIpPerMinute), options.GlobalPerIpPerMinute),
+            (nameof(RateLimitingOptions.SignInPerIpPerMinute), options.SignInPerIpPerMinute),
+            (nameof(RateLimitingOptions.SignInPerAccountPerHour), options.SignInPerAccountPerHour),
+            (nameof(RateLimitingOptions.SignUpPerIpPerHour), options.SignUpPerIpPerHour),
+            (nameof(RateLimitingOptions.StaffSetupPerIpPerMinute), options.StaffSetupPerIpPerMinute),
+        }
+        .Where(limit => limit.Item2 < 1)
+        .Select(limit => $"{RateLimitingOptions.SectionName}:{limit.Item1} must be at least 1.")
+        .ToList();
+
+        return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
     }
 }

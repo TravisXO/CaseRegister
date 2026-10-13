@@ -109,3 +109,18 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
             entries.Enqueue((logLevel, category, formatter(state, exception)));
     }
 }
+
+/// <summary>Collects what the application would have written to the console, after redaction, as the text a log reader would see.</summary>
+public sealed class CapturingLogEventSink : Serilog.Core.ILogEventSink
+{
+    private readonly ConcurrentQueue<string> _lines = new();
+
+    public IReadOnlyCollection<string> Lines => _lines;
+
+    public void Emit(Serilog.Events.LogEvent logEvent)
+    {
+        using var writer = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+        new Serilog.Formatting.Compact.RenderedCompactJsonFormatter().Format(logEvent, writer);
+        _lines.Enqueue(writer.ToString());
+    }
+}

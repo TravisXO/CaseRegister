@@ -19,6 +19,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace CaseRegister.Infrastructure;
@@ -156,7 +157,8 @@ public static class DependencyInjection
         services.AddScoped<IPractisingCertificateService, PractisingCertificateService>();
         services.AddScoped<IMemberProfileService, MemberProfileService>();
         services.AddSingleton<AuthenticatorKeyProtector>();
-        services.AddOptions<TwoFactorOptions>();
+        services.AddSingleton<IValidateOptions<TwoFactorOptions>, TwoFactorOptionsValidator>();
+        services.AddOptions<TwoFactorOptions>().BindConfiguration(TwoFactorOptions.SectionName).ValidateOnStart();
         services.AddSingleton<TwoFactorAttemptLimiter>();
 
         // Sessions live in Postgres. The cookie handler is pointed at this store by the Api project.
@@ -264,14 +266,17 @@ public static class DependencyInjection
             .ProtectKeysWithCertificate(certificate);
     }
 
-    private static void AddExternalClients(IServiceCollection services)
+    internal static void AddExternalClients(IServiceCollection services)
     {
+        services.AddSingleton<IValidateOptions<ExternalCallOptions>, ExternalCallOptionsValidator>();
+        services.AddOptions<ExternalCallOptions>().BindConfiguration(ExternalCallOptions.SectionName).ValidateOnStart();
+
         services.AddHttpClient<IBreachedPasswordChecker, HaveIBeenPwnedClient>(client =>
         {
             client.BaseAddress = new Uri(HaveIBeenPwnedClient.BaseAddress);
-            client.Timeout = TimeSpan.FromSeconds(5);
+            client.Timeout = ExternalCalls.ClientTimeout;
             client.DefaultRequestHeaders.UserAgent.ParseAdd(ApplicationName);
-        });
+        }).AddExternalCallResilience();
 
         services.AddOptions<TurnstileOptions>()
             .Configure<IConfiguration>((options, configuration) => options.SecretKey = configuration[TurnstileOptions.SecretKeyKey])
@@ -280,13 +285,32 @@ public static class DependencyInjection
                 $"{TurnstileOptions.SecretKeyKey} is not configured. Set it with 'dotnet user-secrets' or the Turnstile__SecretKey environment variable.")
             .ValidateOnStart();
 
-        services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>(client => client.Timeout = TimeSpan.FromSeconds(5));
+        services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>(client => client.Timeout = ExternalCalls.ClientTimeout).AddExternalCallResilience();
     }
 }
 
 /// <summary>Stops startup, with the reason, if the audit keys are not usable.</summary>
-internal sealed class AuditOptionsValidator : IValidateOptions<AuditOptions>
+internal sealed class AuditOptionsValidator(Microsoft.Extensions.Hosting.IHostEnvironment environment) : IValidateOptions<AuditOptions>
 {
-    public ValidateOptionsResult Validate(string? name, AuditOptions options) =>
-        options.Problem() is { } problem ? ValidateOptionsResult.Fail(problem) : ValidateOptionsResult.Success;
+    public ValidateOptionsResult Validate(string? name, AuditOptions options)
+    {
+        if (options.Problem() is { } problem)
+        {
+            return ValidateOptionsResult.Fail(problem);
+        }
+
+        // The anchors are there so someone with only the database cannot rewrite history unnoticed. A file on the same machine does not do that.
+        return !environment.IsDevelopment() && !string.IsNullOrWhiteSpace(options.AnchorFilePath)
+            ? ValidateOptionsResult.Fail("Audit:AnchorFilePath is the local file anchor store, which is for Development only. Remove it; an anchor store for other environments comes later.")
+            : ValidateOptionsResult.Success;
+    }
+}
+
+/// <summary>Stops startup, naming the setting and never its value, if the two-factor limit is not a positive number.</summary>
+internal sealed class TwoFactorOptionsValidator : IValidateOptions<TwoFactorOptions>
+{
+    public ValidateOptionsResult Validate(string? name, TwoFactorOptions options) =>
+        options.AttemptsPerMinutePerUser < 1
+            ? ValidateOptionsResult.Fail($"{TwoFactorOptions.SectionName}:AttemptsPerMinutePerUser must be at least 1.")
+            : ValidateOptionsResult.Success;
 }

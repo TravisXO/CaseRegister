@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using CaseRegister.Api.Hardening;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -31,6 +32,10 @@ public static class WebSecurityExtensions
     public static void AddWebSecurityFilters(this MvcOptions options)
     {
         options.Filters.Add<ValidationFilter>();
+
+        // A body must be JSON, and every problem an action returns carries the trace id.
+        options.Filters.Add<JsonBodyOnlyFilter>();
+        options.Filters.Add<ProblemDetailsTraceFilter>();
 
         // Checks the token on POST, PUT, PATCH and DELETE. GET, HEAD, OPTIONS and TRACE are not checked.
         options.Filters.Add<AntiforgeryAuthorizationFilter>();
@@ -87,11 +92,30 @@ public static class WebSecurityExtensions
 
     private static void AddRateLimiting(IServiceCollection services)
     {
-        services.AddOptions<RateLimitingOptions>();
+        services.AddOptions<RateLimitingOptions>()
+            .BindConfiguration(RateLimitingOptions.SectionName)
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<RateLimitingOptions>, RateLimitingOptionsValidator>();
 
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            // A limit for every endpoint, on top of the named ones below. The health checks opt out of it (DisableRateLimiting).
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            {
+                var limits = httpContext.RequestServices.GetRequiredService<IOptions<RateLimitingOptions>>().Value;
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetSlidingWindowLimiter(ip, _ => new SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = limits.GlobalPerIpPerMinute,
+                    Window = TimeSpan.FromMinutes(1),
+                    SegmentsPerWindow = 6,
+                    QueueLimit = 0,
+                    AutoReplenishment = true,
+                });
+            });
 
             // 5 sign-in attempts per minute per client IP, counted whatever the outcome.
             options.AddPolicy(RateLimitPolicies.SignInPerIp, httpContext =>
@@ -145,9 +169,10 @@ public static class WebSecurityExtensions
             {
                 var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var value) ? value : TimeSpan.FromMinutes(1);
                 var result = TooManyRequests.Result(context.HttpContext, retryAfter);
+                ProblemResponses.AddTraceId((ProblemDetails)result.Value!, context.HttpContext);
 
                 context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                await context.HttpContext.Response.WriteAsJsonAsync(result.Value, cancellationToken);
+                await context.HttpContext.Response.WriteAsJsonAsync((ProblemDetails)result.Value!, options: null, contentType: "application/problem+json", cancellationToken);
             };
         });
     }
