@@ -201,6 +201,13 @@ internal sealed partial class PendingActionService(
         var (stateProblems, plan) = await CheckStateAsync(action, confirmer.Id, new OperationOutput(), cancellationToken);
         if (plan is null)
         {
+            // The state may only look wrong because another confirmation went through since the proposal was read above.
+            // Whether the proposal is still pending is settled first: only if it is, the state is the reason.
+            if (await NoLongerOpenAsync(id, confirmer.Id, command.PayloadHash, cancellationToken) is { } settled)
+            {
+                return settled;
+            }
+
             return await RecordRefusalAsync(id, confirmer.Id, stateProblems, remoteIpAddress, cancellationToken);
         }
 
@@ -251,20 +258,32 @@ internal sealed partial class PendingActionService(
                 db.ChangeTracker.Clear();
                 await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-                // Anything that can lower the number of admins goes one at a time, so two cannot both pass the count.
-                if (ApprovalRules.CanReduceAdmins(seen.Type))
-                {
-                    await AdminCensus.LockAsync(db, cancellationToken);
-                }
-
+                // The proposal row is locked before anything else is looked at, so two confirmations of it go one after the other,
+                // and the second one reads what the first one left. Everything below happens in this order, every time:
+                // is it still open (or already confirmed by this same admin), then the rules about people, then the state of
+                // things, and only then the decision. A confirmation that lost the race is therefore always "not pending",
+                // never a refusal about a state the winner changed.
+                await LockProposalAsync(seen.Id, cancellationToken);
                 var action = await db.PendingActions.SingleAsync(a => a.Id == seen.Id, cancellationToken);
                 var now = time.GetUtcNow();
 
-                // Someone may have decided it between our first look and now.
                 if (IsRepeat(action, confirmer.Id, quotedHash))
                 {
                     result = new Attempt(ConfirmOutcome.Confirmed, Repeat: true);
                     return;
+                }
+
+                var open = ApprovalRules.CheckOpen(action, now);
+                if (open.Count > 0)
+                {
+                    result = new Attempt(ClassifyPeopleProblems(open), open);
+                    return;
+                }
+
+                // Anything that can lower the number of admins goes one at a time, so two cannot both pass the count.
+                if (ApprovalRules.CanReduceAdmins(seen.Type))
+                {
+                    await AdminCensus.LockAsync(db, cancellationToken);
                 }
 
                 var people = ApprovalRules.CheckDecision(action, confirmer.Id, confirmer.AgencyId, now);
@@ -331,6 +350,34 @@ internal sealed partial class PendingActionService(
         }
 
         return result!;
+    }
+
+    /// <summary>Waits for any other transaction that has this proposal locked, then holds the lock until this one ends.</summary>
+    private async Task LockProposalAsync(Guid id, CancellationToken cancellationToken) =>
+        _ = await db.Database.SqlQuery<Guid>($"SELECT id AS \"Value\" FROM pending_actions WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// A confirmation was about to be refused for the state of things. If the proposal is in fact no longer open (another admin
+    /// confirmed it, or it was rejected, withdrawn or expired) or this same admin's confirmation already went through, that is
+    /// the answer: the state only looks wrong because of the decision. Null if the proposal is still open.
+    /// </summary>
+    private async Task<ConfirmResult?> NoLongerOpenAsync(Guid id, Guid confirmerId, string quotedHash, CancellationToken cancellationToken)
+    {
+        db.ChangeTracker.Clear();
+        var fresh = await db.PendingActions.AsNoTracking().SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
+        if (fresh is null)
+        {
+            return new ConfirmResult(ConfirmOutcome.NotFound);
+        }
+
+        if (IsRepeat(fresh, confirmerId, quotedHash))
+        {
+            return new ConfirmResult(ConfirmOutcome.Confirmed, await ViewAsync(id, cancellationToken), WasRepeat: true);
+        }
+
+        var open = ApprovalRules.CheckOpen(fresh, time.GetUtcNow());
+
+        return open.Count == 0 ? null : await RefusedForPeopleAsync(fresh, open, cancellationToken);
     }
 
     // --- Rejecting and withdrawing -----------------------------------------------------------------

@@ -393,33 +393,41 @@ public class StaffInviteTests(PostgresFixture postgres)
     public async Task Two_simultaneous_attempts_with_one_link_set_it_up_once()
     {
         await using var world = await WorldAsync();
-        var (_, token) = await world.InviteAsync();
-        var one = world.Factory.CreateApiClient();
-        var two = world.Factory.CreateApiClient();
-        var (_, keyOne) = await World.StartAsync(one, token);
-        var (_, keyTwo) = await World.StartAsync(two, token); // the second start replaces the first key
-        var invitee = await world.Invitee();
-        world.Factory.RememberTwoFactorKey(invitee, Base32.Decode(keyTwo!));
-        var code = world.Factory.NextTotpCode(invitee);
-        var gate = new TaskCompletionSource();
 
-        Task<HttpResponseMessage> Complete(ApiClient client, string password) => Task.Run(async () =>
+        // A stress test: the same race several times, with the exact outcomes every time. The one that loses is told the link is not
+        // valid, the same answer as for any used link, whichever step it reached when the other one finished.
+        for (var round = 0; round < 6; round++)
         {
-            await gate.Task;
+            var email = $"race{round}@example.test";
+            var (_, token) = await world.InviteAsync(email);
+            var one = world.Factory.CreateApiClient();
+            var two = world.Factory.CreateApiClient();
+            var (_, keyOne) = await World.StartAsync(one, token);
+            var (_, keyTwo) = await World.StartAsync(two, token); // the second start replaces the first key
+            var invitee = await world.Invitee(email);
+            world.Factory.RememberTwoFactorKey(invitee, Base32.Decode(keyTwo!));
+            var code = world.Factory.NextTotpCode(invitee);
+            var gate = new TaskCompletionSource();
 
-            return await client.SendAsync(HttpMethod.Post, $"{Setup}/complete", new { token, password, twoFactorCode = code });
-        });
+            Task<HttpResponseMessage> Complete(ApiClient client, string password) => Task.Run(async () =>
+            {
+                await gate.Task;
 
-        var first = Complete(one, "purple tractor sings loudly");
-        var second = Complete(two, "orange ladder hums quietly");
-        gate.SetResult();
-        var statuses = (await Task.WhenAll(first, second)).Select(response => response.StatusCode).Order().ToArray();
+                return await client.SendAsync(HttpMethod.Post, $"{Setup}/complete", new { token, password, twoFactorCode = code });
+            });
 
-        Assert.NotEqual(keyOne, keyTwo);
-        Assert.Equal(1, statuses.Count(status => status == HttpStatusCode.OK));
-        Assert.Equal(1, await world.Factory.WithDbAsync(db => db.StaffSetupTokens.CountAsync(t => t.UsedAt != null)));
-        Assert.Equal(1, await world.AuditCount("StaffSetupCompleted"));
+            var first = Complete(one, "purple tractor sings loudly");
+            var second = Complete(two, "orange ladder hums quietly");
+            gate.SetResult();
+            var statuses = (await Task.WhenAll(first, second)).Select(response => response.StatusCode).Order().ToList();
+
+            Assert.NotEqual(keyOne, keyTwo);
+            Assert.True(statuses.SequenceEqual([HttpStatusCode.OK, HttpStatusCode.BadRequest]), $"round {round}: {string.Join(", ", statuses)}");
+            Assert.Equal(round + 1, await world.Factory.WithDbAsync(db => db.StaffSetupTokens.CountAsync(t => t.UsedAt != null)));
+            Assert.Equal(round + 1, await world.AuditCount("StaffSetupCompleted"));
+        }
     }
+
 
     [Fact]
     public async Task A_link_stops_working_after_twenty_four_hours_to_the_second()

@@ -4,6 +4,7 @@ using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
 using CaseRegister.Domain.Approvals;
+using CaseRegister.Infrastructure.Approvals;
 using CaseRegister.Infrastructure.Identity;
 using CaseRegister.Infrastructure.Persistence;
 using CaseRegister.Tests.Database;
@@ -34,9 +35,9 @@ public class MakerCheckerTests(PostgresFixture postgres)
     }
 
     /// <summary>Three admins (A proposes, B and C confirm), a member who is an agent, and a staff account with no role yet.</summary>
-    private async Task<World> WorldAsync(Action<Dictionary<string, string?>>? settings = null)
+    private async Task<World> WorldAsync(Action<Dictionary<string, string?>>? settings = null, Action<IServiceCollection>? configureServices = null)
     {
-        var factory = await ApiFactory.CreateAsync(postgres, settings);
+        var factory = await ApiFactory.CreateAsync(postgres, settings, configureServices: configureServices);
         var agency = await factory.CreateAgencyAsync();
         var admins = await factory.CreateAdminsAsync(3);
         var member = await factory.CreateMemberAsync("member@example.test", agency, [Role.RegisteredAgent]);
@@ -644,12 +645,122 @@ public class MakerCheckerTests(PostgresFixture postgres)
         Assert.Equal(ConfirmOutcome.NotPending, (await world.Factory.ConfirmAsync(world.C, proposal)).Outcome); // someone else: already decided
     }
 
+    /// <summary>
+    /// Holds one admin's confirmation at the moment it looks at the state of the target, so a test can make the other admin's
+    /// confirmation go through first, in exactly the order a slow machine produces by chance.
+    /// </summary>
+    internal sealed class Pause(int onCall)
+    {
+        private int _calls;
+
+        public Guid Admin { get; set; }
+
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task WaitIfThisIsTheMomentAsync(Guid actor, CancellationToken cancellationToken)
+        {
+            if (actor == Admin && Interlocked.Increment(ref _calls) == onCall)
+            {
+                Reached.SetResult();
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>The real operation, with a look at the shared pause before it plans (each request has its own copy of the operation; the pause is one).</summary>
+    internal sealed class PausingOperation(IAdminOperation inner, Pause pause) : IAdminOperation
+    {
+        public PendingActionType Type => inner.Type;
+
+        public async Task<OperationPlan> PlanAsync(OperationContext context, CancellationToken cancellationToken)
+        {
+            await pause.WaitIfThisIsTheMomentAsync(context.ActorId, cancellationToken);
+
+            return await inner.PlanAsync(context, cancellationToken);
+        }
+    }
+
+    /// <summary>Swaps the reactivate operation for one that can be held at the chosen admin's chosen look at the state.</summary>
+    private static Action<IServiceCollection> PauseReactivation(Pause pause) => services =>
+    {
+        var original = services.Single(descriptor => descriptor.ImplementationType == typeof(ReactivateUserOperation));
+        services.Remove(original);
+        services.AddScoped<IAdminOperation>(provider => new PausingOperation(ActivatorUtilities.CreateInstance<ReactivateUserOperation>(provider), pause));
+    };
+
+    [Fact]
+    public async Task A_confirmation_that_looks_at_the_state_after_another_one_went_through_is_not_pending_and_never_a_refusal()
+    {
+        // C has read the proposal as pending and is about to check the state of the account. B confirms completely first.
+        // The account is now active, so the state looks wrong to C: the answer is still "not pending", not a refusal.
+        var pause = new Pause(onCall: 1);
+        await using var world = await WorldAsync(configureServices: PauseReactivation(pause));
+        pause.Admin = world.C.Id;
+        var target = await world.Factory.CreateUserAsync("held@example.test", status: AccountStatus.Suspended);
+        var proposal = await world.Factory.ProposeOkAsync(world.A, Proposals.ForUser(PendingActionType.ReactivateUser, target));
+        var codeB = world.Factory.NextTotpCode(world.B);
+        var codeC = world.Factory.NextTotpCode(world.C);
+
+        var loser = Task.Run(async () =>
+        {
+            using var scope = world.Factory.Services.CreateScope();
+
+            return await scope.ServiceProvider.GetRequiredService<IPendingActionService>().ConfirmAsync(proposal.Id, world.C.Id, new ConfirmActionCommand(proposal.PayloadHash, codeC), null);
+        });
+        await pause.Reached.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        var winner = await world.Factory.ConfirmAsync(world.B, proposal, code: codeB);
+        pause.Release.SetResult();
+        var result = await loser;
+
+        Assert.Equal(ConfirmOutcome.Confirmed, winner.Outcome);
+        Assert.Equal(ConfirmOutcome.NotPending, result.Outcome);
+        Assert.Contains(result.Problems!, problem => problem.Code == ApprovalRules.NotPending);
+        Assert.Equal(0, await world.Factory.WithDbAsync(db => db.AuditLog.CountAsync(e => e.Action == "ActionRefused" && e.Detail!.StartsWith(proposal.Id.ToString()))));
+        Assert.Null((await world.Factory.WithDbAsync(db => db.PendingActions.AsNoTracking().SingleAsync(a => a.Id == proposal.Id))).LastRefusalCode);
+    }
+
+    [Fact]
+    public async Task A_confirmation_that_is_deciding_makes_the_other_one_wait_and_then_find_the_proposal_decided()
+    {
+        // C is inside the decision, holding it. B arrives, has to wait for C, and so finds it already decided.
+        var pause = new Pause(onCall: 2);
+        await using var world = await WorldAsync(configureServices: PauseReactivation(pause));
+        pause.Admin = world.C.Id;
+        var target = await world.Factory.CreateUserAsync("held2@example.test", status: AccountStatus.Suspended);
+        var proposal = await world.Factory.ProposeOkAsync(world.A, Proposals.ForUser(PendingActionType.ReactivateUser, target));
+        var codeB = world.Factory.NextTotpCode(world.B);
+        var codeC = world.Factory.NextTotpCode(world.C);
+
+        var deciding = Task.Run(async () =>
+        {
+            using var scope = world.Factory.Services.CreateScope();
+
+            return await scope.ServiceProvider.GetRequiredService<IPendingActionService>().ConfirmAsync(proposal.Id, world.C.Id, new ConfirmActionCommand(proposal.PayloadHash, codeC), null);
+        });
+        await pause.Reached.Task.WaitAsync(TimeSpan.FromSeconds(30)); // C holds the proposal, in the middle of deciding it
+        var waiting = Task.Run(async () => await world.Factory.ConfirmAsync(world.B, proposal, code: codeB));
+        await Task.Delay(TimeSpan.FromSeconds(1)); // long enough for B to get as far as waiting for C
+        Assert.False(waiting.IsCompleted, "B must wait for C instead of deciding alongside it");
+        pause.Release.SetResult();
+
+        var results = await Task.WhenAll(deciding, waiting);
+
+        Assert.Equal(ConfirmOutcome.Confirmed, results[0].Outcome);
+        Assert.Equal(ConfirmOutcome.NotPending, results[1].Outcome);
+        Assert.Equal(world.C.Id, (await world.Factory.WithDbAsync(db => db.PendingActions.AsNoTracking().SingleAsync(a => a.Id == proposal.Id))).DecidedByUserId);
+        Assert.Equal(1, await world.Factory.WithDbAsync(db => db.AuditLog.CountAsync(e => e.Action == "UserReactivated" && e.Subject == target.Id.ToString())));
+    }
+
     [Fact]
     public async Task Two_simultaneous_confirmations_apply_the_action_exactly_once()
     {
         await using var world = await WorldAsync();
 
-        for (var round = 0; round < 6; round++)
+        // A stress test: the same race, fifty times, with the exact outcomes asserted every time. The loser has to be "not pending"
+        // however the two requests happen to interleave, never a refusal about a state the winner has just changed.
+        for (var round = 0; round < 50; round++)
         {
             var target = await world.Factory.CreateUserAsync($"suspended{round}@example.test", status: AccountStatus.Suspended);
             var proposal = await world.Factory.ProposeOkAsync(world.A, Proposals.ForUser(PendingActionType.ReactivateUser, target));
@@ -671,15 +782,21 @@ public class MakerCheckerTests(PostgresFixture postgres)
             gate.SetResult();
             var results = await Task.WhenAll(byB, byC);
 
-            Assert.Single(results, result => result.Outcome == ConfirmOutcome.Confirmed && !result.WasRepeat);
-            Assert.Single(results, result => result.Outcome == ConfirmOutcome.NotPending);
+            var outcomes = results.Select(result => result.Outcome).Order().ToList();
+            Assert.True(outcomes.SequenceEqual([ConfirmOutcome.Confirmed, ConfirmOutcome.NotPending]), $"round {round}: {string.Join(", ", outcomes)}");
+            Assert.False(results.Single(result => result.Outcome == ConfirmOutcome.Confirmed).WasRepeat, $"round {round}");
+            Assert.Contains(results.Single(result => result.Outcome == ConfirmOutcome.NotPending).Problems!, problem => problem.Code == ApprovalRules.NotPending);
 
             // One decision, one effect, one set of audit entries.
             var stored = await world.Factory.WithDbAsync(db => db.PendingActions.AsNoTracking().SingleAsync(a => a.Id == proposal.Id));
             Assert.Equal(PendingActionStatus.Confirmed, stored.Status);
             Assert.Equal(AccountStatus.Approved, (await world.Factory.GetUserAsync(target.Email!)).AccountStatus);
+            Assert.Null(stored.LastRefusalCode);
             Assert.Equal(1, await world.Factory.WithDbAsync(db => db.AuditLog.CountAsync(e => e.Action == "UserReactivated" && e.Subject == target.Id.ToString())));
             Assert.Equal(1, await world.Factory.WithDbAsync(db => db.AuditLog.CountAsync(e => e.Action == "ActionConfirmed" && e.Detail!.StartsWith(proposal.Id.ToString()))));
+
+            // The loser was told "not pending" and nothing was written down as a refusal, and the proposal carries no refusal note.
+            Assert.Equal(0, await world.Factory.WithDbAsync(db => db.AuditLog.CountAsync(e => e.Action == "ActionRefused" && e.Detail!.StartsWith(proposal.Id.ToString()))));
         }
     }
 

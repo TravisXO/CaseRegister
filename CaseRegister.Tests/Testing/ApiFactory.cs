@@ -128,6 +128,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public int StaffSetupPerIpPerMinute { get; init; } = 10_000;
 
+    /// <summary>Extra changes to the application's services, for tests that need to hold the application at a chosen moment.</summary>
+    public Action<IServiceCollection>? ConfigureServices { get; init; }
+
     /// <summary>How long a request may take. Null keeps the real limit.</summary>
     public TimeSpan? RequestTimeout { get; init; }
 
@@ -152,7 +155,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         string? anchorFilePath = null,
         string environmentName = "Testing",
         TimeSpan? requestTimeout = null,
-        int globalPerIpPerMinute = 100_000)
+        int globalPerIpPerMinute = 100_000,
+        Action<IServiceCollection>? configureServices = null)
     {
         await postgres.EnsureAppRoleAsync();
         var owner = await postgres.CreateDatabaseAsync();
@@ -165,6 +169,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             EnvironmentName = environmentName,
             RequestTimeout = requestTimeout,
             GlobalPerIpPerMinute = globalPerIpPerMinute,
+            ConfigureServices = configureServices,
             SignInPerIpPerMinute = signInPerIpPerMinute,
             SignInPerAccountPerHour = signInPerAccountPerHour,
             TwoFactorAttemptsPerMinute = twoFactorAttemptsPerMinute,
@@ -450,6 +455,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             }
 
             services.AddSingleton(new LogOutputOverride(LogOutput));
+
+            ConfigureServices?.Invoke(services);
 
             // Test-only endpoints (see ProbeController).
             services.AddControllers().AddApplicationPart(typeof(ProbeController).Assembly);

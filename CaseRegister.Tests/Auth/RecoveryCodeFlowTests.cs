@@ -145,13 +145,18 @@ public class RecoveryCodeFlowTests(PostgresFixture postgres)
     public async Task One_recovery_code_used_twice_at_the_same_instant_works_only_once()
     {
         await using var enrolled = await EnrolledAsync();
-        var one = await TwoFactorFlows.AtTheCodeStepAsync(enrolled.Factory, enrolled.User);
-        var two = await TwoFactorFlows.AtTheCodeStepAsync(enrolled.Factory, enrolled.User);
 
-        var results = await Task.WhenAll(one.VerifyTwoFactorAsync(enrolled.Codes[0]), two.VerifyTwoFactorAsync(enrolled.Codes[0]));
+        // Several rounds, each with a different code, and the exact outcomes every time.
+        for (var round = 0; round < 5; round++)
+        {
+            var one = await TwoFactorFlows.AtTheCodeStepAsync(enrolled.Factory, enrolled.User);
+            var two = await TwoFactorFlows.AtTheCodeStepAsync(enrolled.Factory, enrolled.User);
 
-        Assert.Single(results, result => result.StatusCode == HttpStatusCode.OK);
-        Assert.Single(results, result => result.StatusCode == HttpStatusCode.Unauthorized);
+            var results = await Task.WhenAll(one.VerifyTwoFactorAsync(enrolled.Codes[round]), two.VerifyTwoFactorAsync(enrolled.Codes[round]));
+
+            var statuses = results.Select(result => result.StatusCode).Order().ToList();
+            Assert.True(statuses.SequenceEqual([HttpStatusCode.OK, HttpStatusCode.Unauthorized]), $"round {round}: {string.Join(", ", statuses)}");
+        }
     }
 
     [Fact]
