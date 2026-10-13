@@ -839,6 +839,7 @@
       "caseregister.infrastructure": {
         "type": "Project",
         "dependencies": {
+          "Bogus": "[35.6.5, )",
           "CaseRegister.Application": "[1.0.0, )",
           "EFCore.NamingConventions": "[10.0.1, )",
           "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore": "[10.0.12, )",
@@ -846,6 +847,12 @@
           "Microsoft.Extensions.Http.Resilience": "[10.10.0, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )"
         }
+      },
+      "Bogus": {
+        "type": "CentralTransitive",
+        "requested": "[35.6.5, )",
+        "resolved": "35.6.5",
+        "contentHash": "2FGZn+aAVHjmCgClgmGkTDBVZk0zkLvAKGaxEf5JL6b3i9JbHTE4wnuY4vHCuzlCmJdU6VZjgDfHwmYkQF8VAA=="
       },
       "EFCore.NamingConventions": {
         "type": "CentralTransitive",

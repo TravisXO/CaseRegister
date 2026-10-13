@@ -650,7 +650,11 @@ internal sealed partial class PendingActionService(
             .OfType<Guid>()
             .Distinct()
             .ToList();
-        var agencyIds = actions.Select(action => action.TargetAgencyId).OfType<Guid>().Distinct().ToList();
+        var agencyIds = actions.Select(action => action.TargetAgencyId).OfType<Guid>().ToList();
+
+        // An approval names the agency the applicant joins, so the admin deciding is shown its name and not just that it exists.
+        agencyIds.AddRange(actions.Where(action => action.Type == PendingActionType.ApproveApplication).Select(action => ActionPayloads.ApproveApplication(action.Payload).ExistingAgencyId).OfType<Guid>());
+        agencyIds = [.. agencyIds.Distinct()];
 
         var userNames = await db.Users.AsNoTracking().Where(user => userIds.Contains(user.Id)).ToDictionaryAsync(user => user.Id, user => user.FullName, cancellationToken);
         var agencyNames = await db.Agencies.AsNoTracking().Where(agency => agencyIds.Contains(agency.Id)).ToDictionaryAsync(agency => agency.Id, agency => agency.Name, cancellationToken);
@@ -669,7 +673,7 @@ internal sealed partial class PendingActionService(
                     action.TargetUserId,
                     action.TargetAgencyId,
                     targetName,
-                    ActionPayloads.Describe(action.Type, action.Payload, targetName),
+                    ActionPayloads.Describe(action.Type, action.Payload, targetName, action.Type == PendingActionType.ApproveApplication && ActionPayloads.ApproveApplication(action.Payload).ExistingAgencyId is { } existing ? agencyNames.GetValueOrDefault(existing) : null),
                     action.Payload,
                     action.PayloadHash,
                     action.Reason,

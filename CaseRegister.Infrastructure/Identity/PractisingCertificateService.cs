@@ -119,8 +119,8 @@ internal sealed class MemberProfileService(
             return null;
         }
 
-        var agencyName = user.AgencyId is { } agencyId
-            ? await db.Agencies.AsNoTracking().Where(a => a.Id == agencyId).Select(a => a.Name).SingleOrDefaultAsync(cancellationToken)
+        var agency = user.AgencyId is { } agencyId
+            ? await db.Agencies.AsNoTracking().Where(a => a.Id == agencyId).Select(a => new { a.Name, Active = a.Status == Domain.Agencies.AgencyStatus.Active }).SingleOrDefaultAsync(cancellationToken)
             : null;
 
         return new MemberProfile(
@@ -130,7 +130,8 @@ internal sealed class MemberProfileService(
             user.MembershipNumber?.Format(membership.Value.DisplayPrefix),
             user.MembershipClass,
             user.AgencyId,
-            agencyName,
+            agency?.Name,
+            agency?.Active ?? true,
             [.. (await users.GetRolesAsync(user)).Order(StringComparer.Ordinal)],
             await certificates.HasCurrentAsync(userId, cancellationToken));
     }

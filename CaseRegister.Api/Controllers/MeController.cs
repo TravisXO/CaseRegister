@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CaseRegister.Api.Contracts;
 using CaseRegister.Application.Accounts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,44 +13,49 @@ namespace CaseRegister.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/me")]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
 public sealed class MeController(IMemberProfileService profiles, IPractisingCertificateService certificates) : ControllerBase
 {
     [HttpGet]
     [Authorize]
+    [ProducesResponseType<ProfileResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Profile(CancellationToken cancellationToken)
     {
         var profile = await profiles.GetAsync(CurrentUserId(), cancellationToken);
 
         return profile is null
             ? NotFound()
-            : Ok(new
-            {
-                id = profile.Id,
-                fullName = profile.FullName,
-                email = profile.Email,
-                membershipNumber = profile.MembershipNumber,
-                membershipClass = profile.MembershipClass?.ToString(),
-                agency = profile.AgencyId is null ? null : new { id = profile.AgencyId, name = profile.AgencyName },
-                roles = profile.Roles,
-                hasCurrentPractisingCertificate = profile.HasCurrentPractisingCertificate,
-            });
+            : Ok(new ProfileResponse(
+                profile.Id,
+                profile.FullName,
+                profile.Email,
+                profile.MembershipNumber,
+                profile.MembershipClass?.ToString(),
+                profile.AgencyId is { } agencyId ? new AgencyReference(agencyId, profile.AgencyName ?? string.Empty, profile.AgencyActive) : null,
+                profile.Roles,
+                profile.HasCurrentPractisingCertificate));
     }
 
     [HttpGet("practising-certificates")]
     [Authorize]
+    [ProducesResponseType<IReadOnlyList<CertificateInfo>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Certificates(CancellationToken cancellationToken) =>
         Ok(await certificates.ListAsync(CurrentUserId(), cancellationToken));
 
     /// <summary>Adds a new certificate to the member's history. It is not counted until an admin verifies it.</summary>
     [HttpPost("practising-certificates")]
     [Authorize]
+    [ProducesResponseType<CreatedResponse>(StatusCodes.Status201Created)]
     public async Task<IActionResult> AddCertificate(AddPractisingCertificateCommand command, CancellationToken cancellationToken)
     {
         var result = await certificates.AddAsync(CurrentUserId(), command, HttpContext.Connection.RemoteIpAddress?.ToString(), cancellationToken);
 
         return result.Outcome switch
         {
-            AddCertificateOutcome.Added => StatusCode(StatusCodes.Status201Created, new { id = result.CertificateId }),
+            AddCertificateOutcome.Added => StatusCode(StatusCodes.Status201Created, new CreatedResponse(result.CertificateId!.Value)),
             AddCertificateOutcome.Duplicate => Problem(statusCode: StatusCodes.Status409Conflict, title: "Already recorded", detail: "A certificate with that number has already been recorded."),
             AddCertificateOutcome.NotAMember => Problem(statusCode: StatusCodes.Status403Forbidden, title: "Not allowed", detail: "Only members have practising certificates."),
             _ => BadRequest(new ProblemDetails

@@ -1,3 +1,4 @@
+using CaseRegister.Api.Contracts;
 using CaseRegister.Api.Hardening;
 using System.Security.Claims;
 using CaseRegister.Api.Security;
@@ -16,6 +17,10 @@ namespace CaseRegister.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/auth")]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
 [RequestBodyLimit(RequestLimits.AuthBodyBytes)]
 public sealed class AuthController(
     ISignInService signInService,
@@ -30,12 +35,13 @@ public sealed class AuthController(
     /// <summary>Issues an anti-forgery token. Send it back in the X-CSRF-TOKEN header on every POST, PUT, PATCH and DELETE.</summary>
     [HttpGet("csrf")]
     [AllowAnonymous]
+    [ProducesResponseType<CsrfResponse>(StatusCodes.Status200OK)]
     public IActionResult Csrf()
     {
         var tokens = antiforgery.GetAndStoreTokens(HttpContext);
         Response.Headers.CacheControl = "no-store";
 
-        return Ok(new { token = tokens.RequestToken });
+        return Ok(new CsrfResponse(tokens.RequestToken!));
     }
 
     // --- Signing in --------------------------------------------------------------------------
@@ -45,6 +51,7 @@ public sealed class AuthController(
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.SignInPerIp)]
     [ServiceFilter<SignInAccountRateLimitFilter>]
+    [ProducesResponseType<StatusResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> SignIn(SignInCommand command, CancellationToken cancellationToken)
     {
         var status = await signInService.SignInAsync(command, RemoteIp(), cancellationToken);
@@ -52,8 +59,8 @@ public sealed class AuthController(
         // One failure response whatever the reason, so sign-in reveals nothing about any account.
         return status switch
         {
-            SignInStatus.TwoFactorRequired => Ok(new { status = "two-factor-required" }),
-            SignInStatus.TwoFactorEnrolmentRequired => Ok(new { status = "two-factor-enrolment-required" }),
+            SignInStatus.TwoFactorRequired => Ok(new StatusResponse("two-factor-required")),
+            SignInStatus.TwoFactorEnrolmentRequired => Ok(new StatusResponse("two-factor-enrolment-required")),
             _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign-in failed", detail: SignInFailedDetail),
         };
     }
@@ -61,13 +68,14 @@ public sealed class AuthController(
     /// <summary>Step two: the code from the authenticator app (or a recovery code). Only works right after step one.</summary>
     [HttpPost("2fa/verify")]
     [AllowAnonymous]
+    [ProducesResponseType<StatusResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> VerifyTwoFactor(TwoFactorCodeCommand command, CancellationToken cancellationToken)
     {
         var result = await twoFactor.VerifySignInAsync(command.Code, RemoteIp(), cancellationToken);
 
         return result.Outcome switch
         {
-            TwoFactorOutcome.Succeeded => Ok(new { status = "signed-in" }),
+            TwoFactorOutcome.Succeeded => Ok(new StatusResponse("signed-in")),
             TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
             _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: VerificationFailedDetail),
         };
@@ -75,6 +83,7 @@ public sealed class AuthController(
 
     [HttpPost("sign-out")]
     [Authorize(Policy = AuthorizationPolicies.SignedIn)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> EndSession()
     {
         await signInService.SignOutAsync();
@@ -85,36 +94,37 @@ public sealed class AuthController(
     /// <summary>Tells the front end whether a session is open, whose it is, and whether it still has to enrol in or pass two-factor.</summary>
     [HttpGet("session")]
     [Authorize(Policy = AuthorizationPolicies.SignedIn)]
-    public IActionResult Session() => Ok(new
-    {
-        userId = User.FindFirstValue(ClaimTypes.NameIdentifier),
-        twoFactorComplete = User.HasClaim(AuthenticationClaims.Amr, AuthenticationClaims.AmrMultiFactor),
-    });
+    [ProducesResponseType<SessionResponse>(StatusCodes.Status200OK)]
+    public IActionResult Session() => Ok(new SessionResponse(
+        User.FindFirstValue(ClaimTypes.NameIdentifier),
+        User.HasClaim(AuthenticationClaims.Amr, AuthenticationClaims.AmrMultiFactor)));
 
     // --- Two-factor enrolment ----------------------------------------------------------------
 
     /// <summary>Makes a key and returns the otpauth address for the QR code. Nothing is switched on yet.</summary>
     [HttpPost("2fa/enrol")]
     [Authorize(Policy = AuthorizationPolicies.SignedIn)]
+    [ProducesResponseType<EnrolmentResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> StartEnrolment(CancellationToken cancellationToken)
     {
         var start = await twoFactor.StartEnrolmentAsync(CurrentUserId(), cancellationToken);
 
         return start is null
             ? Problem(statusCode: StatusCodes.Status409Conflict, title: "Two-factor is already set up", detail: "Two-factor authentication is already switched on for this account.")
-            : Ok(new { otpAuthUri = start.OtpAuthUri, sharedKey = start.SharedKey });
+            : Ok(new EnrolmentResponse(start.OtpAuthUri, start.SharedKey));
     }
 
     /// <summary>Switches two-factor on, after a valid code. The recovery codes in the answer are shown once and never again.</summary>
     [HttpPost("2fa/enrol/confirm")]
     [Authorize(Policy = AuthorizationPolicies.SignedIn)]
+    [ProducesResponseType<RecoveryCodesResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> ConfirmEnrolment(TwoFactorCodeCommand command, CancellationToken cancellationToken)
     {
         var result = await twoFactor.ConfirmEnrolmentAsync(CurrentUserId(), command.Code, RemoteIp(), cancellationToken);
 
         return result.Outcome switch
         {
-            TwoFactorOutcome.Succeeded => Ok(new { recoveryCodes = result.RecoveryCodes }),
+            TwoFactorOutcome.Succeeded => Ok(new RecoveryCodesResponse(result.RecoveryCodes!)),
             TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
             TwoFactorOutcome.NotApplicable => Problem(statusCode: StatusCodes.Status409Conflict, title: "Nothing to confirm", detail: "Start two-factor setup first."),
             _ => Problem(statusCode: StatusCodes.Status400BadRequest, title: "The code was not accepted", detail: "The code is not valid. Check your authenticator app and try again."),
@@ -124,13 +134,14 @@ public sealed class AuthController(
     /// <summary>Replaces all recovery codes with a fresh set, shown once. Needs a current authenticator code.</summary>
     [HttpPost("2fa/recovery-codes")]
     [Authorize]
+    [ProducesResponseType<RecoveryCodesResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> RegenerateRecoveryCodes(TwoFactorCodeCommand command, CancellationToken cancellationToken)
     {
         var result = await twoFactor.RegenerateRecoveryCodesAsync(CurrentUserId(), command.Code, RemoteIp(), cancellationToken);
 
         return result.Outcome switch
         {
-            TwoFactorOutcome.Succeeded => Ok(new { recoveryCodes = result.RecoveryCodes }),
+            TwoFactorOutcome.Succeeded => Ok(new RecoveryCodesResponse(result.RecoveryCodes!)),
             TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
             _ => Problem(statusCode: StatusCodes.Status400BadRequest, title: "The code was not accepted", detail: "The code is not valid. Check your authenticator app and try again."),
         };
@@ -140,6 +151,7 @@ public sealed class AuthController(
 
     [HttpPost("change-password")]
     [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> ChangePassword(ChangePasswordCommand command, CancellationToken cancellationToken)
     {
         var result = await passwordService.ChangePasswordAsync(CurrentUserId(), command, RemoteIp(), cancellationToken);
@@ -169,23 +181,17 @@ public sealed class AuthController(
 
     [HttpGet("sessions")]
     [Authorize]
+    [ProducesResponseType<IReadOnlyList<SessionInfo>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> ListSessions(CancellationToken cancellationToken)
     {
         var list = await sessions.ListAsync(CurrentUserId(), CurrentSessionId(), cancellationToken);
 
-        return Ok(list.Select(session => new
-        {
-            id = session.Id,
-            signedInAt = session.SignedInAt,
-            lastActiveAt = session.LastActiveAt,
-            ipAddress = session.IpAddress,
-            userAgent = session.UserAgent,
-            isCurrent = session.IsCurrent,
-        }));
+        return Ok(list);
     }
 
     [HttpDelete("sessions/{id:guid}")]
     [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> EndOneSession(Guid id, CancellationToken cancellationToken)
     {
         var outcome = await sessions.EndAsync(CurrentUserId(), id, RemoteIp(), cancellationToken);
