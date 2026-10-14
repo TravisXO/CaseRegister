@@ -218,6 +218,44 @@ public sealed partial class WorkflowFilesTests
         Assert.Contains("LogRedactionTests", config, StringComparison.Ordinal);
     }
 
+    // --- The front end ----------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void The_frontend_job_installs_from_the_lock_file_without_running_install_scripts_and_checks_everything()
+    {
+        var job = Jobs(Workflow("ci.yml")).Single(j => j.Name == "frontend").Text;
+
+        Assert.Contains("working-directory: frontend", job, StringComparison.Ordinal);
+        Assert.Matches(@"actions/setup-node@[0-9a-f]{40}", job);
+        Assert.Contains("cache-dependency-path: frontend/package-lock.json", job, StringComparison.Ordinal);
+        Assert.Contains("run: npm ci --ignore-scripts", job, StringComparison.Ordinal);
+        foreach (var step in new[] { "npm run lint", "npm run typecheck", "npm run test", "npm run build", "npm run check:build", "npm audit --audit-level=high" })
+        {
+            Assert.Contains($"run: {step}", job, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain("--legacy-peer-deps", job, StringComparison.Ordinal);
+        Assert.DoesNotContain("--force", job, StringComparison.Ordinal);
+        Assert.DoesNotContain("npm install", job, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_frontend_job_fails_if_the_generated_types_are_not_what_the_api_description_says()
+    {
+        var job = Jobs(Workflow("ci.yml")).Single(j => j.Name == "frontend").Text;
+
+        Assert.Contains("npm run api:types", job, StringComparison.Ordinal);
+        Assert.Contains("git diff --exit-code -- src/api/schema.d.ts", job, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_frontend_has_a_lock_file_and_the_generated_types_are_committed()
+    {
+        Assert.True(File.Exists(Path.Combine(_root, "frontend", "package-lock.json")));
+        Assert.True(File.Exists(Path.Combine(_root, "frontend", "src", "api", "schema.d.ts")));
+        Assert.True(File.Exists(Path.Combine(_root, "frontend", "openapi.json")));
+    }
+
     // --- CodeQL --------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -226,7 +264,9 @@ public sealed partial class WorkflowFilesTests
         var text = Workflow("codeql.yml");
 
         Assert.Matches(@"(?m)^on:\n  push:\n    branches: \[main\]\n  pull_request:\n    branches: \[main\]\n  schedule:\n(    #[^\n]*\n)?    - cron: ""[^""]+""", text);
-        Assert.Matches(@"languages: csharp", text);
+        Assert.Matches(@"language: \[csharp, javascript-typescript\]", text);
+        Assert.Contains("languages: ${{ matrix.language }}", text, StringComparison.Ordinal);
+        Assert.Contains("category: \"/language:${{ matrix.language }}\"", text, StringComparison.Ordinal);
         Assert.Matches(@"github/codeql-action/init@[0-9a-f]{40}", text);
         Assert.Matches(@"github/codeql-action/analyze@[0-9a-f]{40}", text);
 
@@ -250,6 +290,7 @@ public sealed partial class WorkflowFilesTests
 
     [Theory]
     [InlineData("nuget")]
+    [InlineData("npm")]
     [InlineData("github-actions")]
     [InlineData("docker")]
     public void Dependabot_checks_each_ecosystem_weekly_and_groups_related_updates(string ecosystem)
@@ -261,18 +302,18 @@ public sealed partial class WorkflowFilesTests
         var end = index + 1 < starts.Count ? starts[index + 1].Index : config.Length;
         var block = config[starts[index].Index..end];
 
-        Assert.Contains("directory: \"/\"", block, StringComparison.Ordinal);
+        Assert.Matches(@"directory: ""/(frontend)?""", block);
         Assert.Contains("interval: weekly", block, StringComparison.Ordinal);
         Assert.Contains("groups:", block, StringComparison.Ordinal);
         Assert.Matches(@"patterns:\n\s+- ""[^""]+""", block);
     }
 
     [Fact]
-    public void Dependabot_has_exactly_those_three_ecosystems()
+    public void Dependabot_has_exactly_those_four_ecosystems()
     {
         var config = Read(".github", "dependabot.yml");
 
-        Assert.Equal(["nuget", "github-actions", "docker"], Regex.Matches(config, @"(?m)^  - package-ecosystem: ([\w-]+)").Select(match => match.Groups[1].Value));
+        Assert.Equal(["nuget", "npm", "github-actions", "docker"], Regex.Matches(config, @"(?m)^  - package-ecosystem: ([\w-]+)").Select(match => match.Groups[1].Value));
     }
 
     // --- Locked restores -----------------------------------------------------------------------------------------

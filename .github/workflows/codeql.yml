@@ -18,9 +18,13 @@ concurrency:
 
 jobs:
   analyze:
-    name: Analyze (C#)
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [csharp, javascript-typescript]
     # Only this job may write security results.
     permissions:
       security-events: write
@@ -40,10 +44,10 @@ jobs:
       - name: Start CodeQL
         uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
-          languages: csharp
+          languages: ${{ matrix.language }}
           build-mode: none
 
       - name: Analyze
         uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
-          category: "/language:csharp"
+          category: "/language:${{ matrix.language }}"
