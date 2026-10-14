@@ -55,7 +55,7 @@ public static class ActionPayloads
     };
 
     /// <summary>What the proposal says in words, for the admin deciding on it.</summary>
-    public static string Describe(PendingActionType type, string payload, string? targetName)
+    public static string Describe(PendingActionType type, string payload, string? targetName, string? existingAgencyName = null)
     {
         var who = targetName ?? "the account";
 
@@ -70,7 +70,7 @@ public static class ActionPayloads
             PendingActionType.SuspendUser => $"Suspend the account of {who} and end all sessions",
             PendingActionType.EndSessions => $"End all sessions of {who}",
             PendingActionType.SuspendAgency => $"Suspend the agency {who}",
-            PendingActionType.ApproveApplication => DescribeApproval(who, payload),
+            PendingActionType.ApproveApplication => DescribeApproval(who, payload, existingAgencyName),
             PendingActionType.RejectApplication => $"Reject the application of {who}",
             PendingActionType.InviteStaff => DescribeInvite(payload),
             _ => type.ToString(),
@@ -85,10 +85,12 @@ public static class ActionPayloads
 
     public static InvitePayload Invite(string payload) => Deserialize<InvitePayload>(payload);
 
-    private static string DescribeApproval(string who, string payload)
+    private static string DescribeApproval(string who, string payload, string? existingAgencyName)
     {
         var approval = ApproveApplication(payload);
-        var agency = approval.NewAgencyName is { } name ? $"a new agency called \"{name}\"" : "an existing agency";
+        var agency = approval.NewAgencyName is { } name ? $"a new agency called \"{name}\""
+            : existingAgencyName is not null ? $"the existing agency \"{existingAgencyName}\""
+            : "an existing agency";
         var flags = approval.AcknowledgedFlags.Count == 0 ? "no flags" : $"flags acknowledged: {string.Join(", ", approval.AcknowledgedFlags)}";
 
         return $"Approve the application of {who}: join {agency}, verify their certificate, make them a registered agent ({flags})";

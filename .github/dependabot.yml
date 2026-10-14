@@ -47,6 +47,46 @@ updates:
       - dependency-name: "dotnet-ef"
         update-types: ["version-update:semver-major"]
 
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "react-router*"
+          - "@types/react*"
+      build-and-test:
+        patterns:
+          - "vite*"
+          - "@vitejs/*"
+          - "vitest*"
+          - "@vitest/*"
+          - "jsdom"
+          - "msw"
+          - "@testing-library/*"
+          - "tailwindcss"
+          - "@tailwindcss/*"
+      lint:
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "globals"
+      api-types:
+        patterns:
+          - "openapi-typescript"
+    # Held back on purpose: typescript-eslint and openapi-typescript do not support TypeScript 6 or 7 yet, and eslint-plugin-jsx-a11y does not
+    # support ESLint 10 yet. They move when the tools that depend on them do.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

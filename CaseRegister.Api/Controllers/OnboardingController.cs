@@ -1,3 +1,4 @@
+using CaseRegister.Api.Contracts;
 using CaseRegister.Api.Hardening;
 using CaseRegister.Api.Security;
 using CaseRegister.Application.Applications;
@@ -13,6 +14,10 @@ namespace CaseRegister.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/auth")]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
 [RequestBodyLimit(RequestLimits.AuthBodyBytes)]
 public sealed class OnboardingController(IMemberSignUpService signUp, IStaffSetupService staffSetup) : ControllerBase
 {
@@ -25,13 +30,15 @@ public sealed class OnboardingController(IMemberSignUpService signUp, IStaffSetu
     [HttpPost("sign-up")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.SignUpPerIp)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SignUp(SignUpCommand command, CancellationToken cancellationToken)
     {
         var result = await signUp.SignUpAsync(command, RemoteIp(), cancellationToken);
 
         return result.Outcome switch
         {
-            SignUpOutcome.Submitted => Ok(new { message = SignUpMessages.Submitted }),
+            SignUpOutcome.Submitted => Ok(new MessageResponse(SignUpMessages.Submitted)),
             SignUpOutcome.Invalid => BadRequest(new ValidationProblemDetails(result.Errors!.ToDictionary(pair => pair.Key, pair => pair.Value))),
             _ => Problem(statusCode: StatusCodes.Status400BadRequest, title: "Verification failed", detail: "Verification failed. Please try again."),
         };
@@ -41,13 +48,14 @@ public sealed class OnboardingController(IMemberSignUpService signUp, IStaffSetu
     [HttpPost("staff-setup/start")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.StaffSetupPerIp)]
+    [ProducesResponseType<EnrolmentResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> StartSetup(StaffSetupStartCommand command, CancellationToken cancellationToken)
     {
         var result = await staffSetup.StartAsync(command.Token, RemoteIp(), cancellationToken);
 
         return result.Outcome switch
         {
-            StaffSetupOutcome.Succeeded => Ok(new { otpAuthUri = result.Enrolment!.OtpAuthUri, sharedKey = result.Enrolment.SharedKey }),
+            StaffSetupOutcome.Succeeded => Ok(new EnrolmentResponse(result.Enrolment!.OtpAuthUri, result.Enrolment.SharedKey)),
             StaffSetupOutcome.RateLimited => TooManyRequests.Result(HttpContext, TimeSpan.FromMinutes(10)),
             _ => Problem(statusCode: StatusCodes.Status400BadRequest, title: "Setup link not valid", detail: TokenInvalidDetail),
         };
@@ -57,6 +65,7 @@ public sealed class OnboardingController(IMemberSignUpService signUp, IStaffSetu
     [HttpPost("staff-setup/complete")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.StaffSetupPerIp)]
+    [ProducesResponseType<RecoveryCodesResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> CompleteSetup(StaffSetupCompleteCommand command, CancellationToken cancellationToken)
     {
         var result = await staffSetup.CompleteAsync(command.Token, command.Password, command.TwoFactorCode, RemoteIp(), cancellationToken);
@@ -64,7 +73,7 @@ public sealed class OnboardingController(IMemberSignUpService signUp, IStaffSetu
         switch (result.Outcome)
         {
             case StaffSetupOutcome.Succeeded:
-                return Ok(new { recoveryCodes = result.RecoveryCodes });
+                return Ok(new RecoveryCodesResponse(result.RecoveryCodes!));
             case StaffSetupOutcome.RateLimited:
                 return TooManyRequests.Result(HttpContext, TimeSpan.FromMinutes(10));
             case StaffSetupOutcome.InvalidPassword:

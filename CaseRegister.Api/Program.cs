@@ -27,11 +27,16 @@ builder.Services.AddWebSecurity();
 
 var app = builder.Build();
 
-// "dotnet run -- seed-admin", "verify-audit" and "anchor-audit" run a command instead of the web server. They come first, before anything
+// "dotnet run -- seed-admin", "seed-demo", "verify-audit" and "anchor-audit" run a command instead of the web server. They come first, before anything
 // touches the database, because it has to be able to refuse while migrations are pending.
 if (args.Length > 0 && args[0] == SeedAdminCommand.Name)
 {
     return await SeedAdminCommand.RunAsync(args, app.Services, app.Configuration, new ConsoleTerminal());
+}
+
+if (args.Length > 0 && args[0] == DemoCommands.Name)
+{
+    return await DemoCommands.RunAsync(args, app.Services, new ConsoleTerminal());
 }
 
 if (args.Length > 0 && AuditCommands.Handles(args[0]))

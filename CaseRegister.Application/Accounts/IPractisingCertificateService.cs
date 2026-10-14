@@ -68,6 +68,7 @@ public sealed record MemberProfile(
     MembershipClass? MembershipClass,
     Guid? AgencyId,
     string? AgencyName,
+    bool AgencyActive,
     IReadOnlyList<string> Roles,
     bool HasCurrentPractisingCertificate);
 

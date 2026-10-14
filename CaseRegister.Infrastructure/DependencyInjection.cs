@@ -48,6 +48,7 @@ public static class DependencyInjection
 
         AddAudit(services);
         services.AddScoped<DemoDataSeeder>();
+        services.AddScoped<DemoApplicationsSeeder>();
 
         return services;
     }

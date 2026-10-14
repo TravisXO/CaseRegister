@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using CaseRegister.Api.Contracts;
 using CaseRegister.Api.Security;
 using CaseRegister.Application.Applications;
 using CaseRegister.Application.Approvals;
@@ -17,6 +18,13 @@ namespace CaseRegister.Api.Controllers;
 /// </remarks>
 [ApiController]
 [Route("api/admin")]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
 public sealed class AdminController(IPendingActionService approvals, IAccountAdministrationService administration, IApplicationReviewService applications) : ControllerBase
 {
     // --- Proposals that need a second admin ----------------------------------------------------
@@ -24,16 +32,19 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     /// <summary>Proposals still waiting, with their expiry worked out. <c>includeClosed</c> adds decided and lapsed ones.</summary>
     [HttpGet("pending-actions")]
     [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [ProducesResponseType<IReadOnlyList<PendingActionResponse>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] bool includeClosed, CancellationToken cancellationToken) =>
         Ok((await approvals.ListAsync(includeClosed, cancellationToken)).Select(Shape));
 
     [HttpGet("pending-actions/{id:guid}")]
     [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [ProducesResponseType<PendingActionResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken) =>
         await approvals.GetAsync(id, cancellationToken) is { } view ? Ok(Shape(view)) : NotFound();
 
     [HttpPost("pending-actions")]
     [Authorize(Policy = nameof(Capability.ProposeAdminActions))]
+    [ProducesResponseType<PendingActionResponse>(StatusCodes.Status201Created)]
     public async Task<IActionResult> Propose(ProposeActionCommand command, CancellationToken cancellationToken)
     {
         var result = await approvals.ProposeAsync(CurrentUserId(), command, RemoteIp(), cancellationToken);
@@ -54,6 +65,7 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     /// <summary>Confirms a proposal made by someone else. Needs the hash of what was shown and a fresh two-factor code.</summary>
     [HttpPost("pending-actions/{id:guid}/confirm")]
     [Authorize(Policy = nameof(Capability.ConfirmAdminActions))]
+    [ProducesResponseType<PendingActionResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Confirm(Guid id, ConfirmActionCommand command, CancellationToken cancellationToken)
     {
         var result = await approvals.ConfirmAsync(id, CurrentUserId(), command, RemoteIp(), cancellationToken);
@@ -76,12 +88,14 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     /// <summary>Turns down a proposal made by someone else.</summary>
     [HttpPost("pending-actions/{id:guid}/reject")]
     [Authorize(Policy = nameof(Capability.ConfirmAdminActions))]
+    [ProducesResponseType<PendingActionResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Reject(Guid id, DecisionReasonCommand command, CancellationToken cancellationToken) =>
         Decision(await approvals.RejectAsync(id, CurrentUserId(), command.Reason, RemoteIp(), cancellationToken));
 
     /// <summary>Takes back the caller's own pending proposal.</summary>
     [HttpPost("pending-actions/{id:guid}/withdraw")]
     [Authorize(Policy = nameof(Capability.ProposeAdminActions))]
+    [ProducesResponseType<PendingActionResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Withdraw(Guid id, DecisionReasonCommand command, CancellationToken cancellationToken) =>
         Decision(await approvals.WithdrawAsync(id, CurrentUserId(), command.Reason, RemoteIp(), cancellationToken));
 
@@ -93,38 +107,27 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     /// </summary>
     [HttpGet("applications")]
     [Authorize(Policy = nameof(Capability.ViewApplications))]
+    [ProducesResponseType<IReadOnlyList<ApplicationView>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Applications(CancellationToken cancellationToken) =>
-        Ok((await applications.ListPendingAsync(cancellationToken)).Select(application => new
-        {
-            applicationId = application.ApplicationId,
-            userId = application.UserId,
-            fullName = application.FullName,
-            email = application.Email,
-            membershipNumber = application.MembershipNumber,
-            membershipClass = application.MembershipClass,
-            agencyName = application.AgencyName,
-            certificateNumber = application.CertificateNumber,
-            certificateYear = application.CertificateYear,
-            flags = application.Flags,
-            submittedAt = application.SubmittedAt,
-            reapplicationCount = application.ReapplicationCount,
-            suggestedAgencies = application.SuggestedAgencies.Select(match => new { id = match.Id, name = match.Name }),
-        }));
+        Ok(await applications.ListPendingAsync(cancellationToken));
 
     // --- Actions that take access away, at once --------------------------------------------------
 
     [HttpPost("users/{id:guid}/suspend")]
     [Authorize(Policy = nameof(Capability.RestrictAccess))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> SuspendUser(Guid id, DecisionReasonCommand command, CancellationToken cancellationToken) =>
         Immediate(await administration.SuspendUserAsync(CurrentUserId(), id, command.Reason, RemoteIp(), cancellationToken));
 
     [HttpPost("users/{id:guid}/end-sessions")]
     [Authorize(Policy = nameof(Capability.RestrictAccess))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> EndSessions(Guid id, DecisionReasonCommand command, CancellationToken cancellationToken) =>
         Immediate(await administration.EndSessionsAsync(CurrentUserId(), id, command.Reason, RemoteIp(), cancellationToken));
 
     [HttpPost("agencies/{id:guid}/suspend")]
     [Authorize(Policy = nameof(Capability.RestrictAccess))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> SuspendAgency(Guid id, DecisionReasonCommand command, CancellationToken cancellationToken) =>
         Immediate(await administration.SuspendAgencyAsync(CurrentUserId(), id, command.Reason, RemoteIp(), cancellationToken));
 
@@ -167,35 +170,24 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
         problems?.Any(problem => problem.Code == ApprovalRules.SelfTarget) == true;
 
     /// <summary>The confirmation as shown to the confirming admin. A staff invite's setup link is in it once, here and nowhere else.</summary>
-    private static Dictionary<string, object?> ShapeWithLink(ConfirmResult result)
-    {
-        var shaped = Shape(result.Action!);
-        if (result.SetupLink is not null)
-        {
-            shaped["setupLink"] = result.SetupLink;
-        }
+    private static PendingActionResponse ShapeWithLink(ConfirmResult result) => Shape(result.Action!) with { SetupLink = result.SetupLink };
 
-        return shaped;
-    }
-
-    private static Dictionary<string, object?> Shape(PendingActionView view) => new()
-    {
-        ["id"] = view.Id,
-        ["type"] = view.Type,
-        ["target"] = new { userId = view.TargetUserId, agencyId = view.TargetAgencyId, email = view.TargetEmail, name = view.TargetName },
-        ["description"] = view.Description,
-        ["payload"] = JsonSerializer.Deserialize<JsonElement>(view.Payload),
-        ["payloadHash"] = view.PayloadHash,
-        ["reason"] = view.Reason,
-        ["status"] = view.Status,
-        ["proposedBy"] = new { userId = view.ProposedByUserId, name = view.ProposedByName },
-        ["proposedAt"] = view.ProposedAt,
-        ["expiresAt"] = view.ExpiresAt,
-        ["decidedByUserId"] = view.DecidedByUserId,
-        ["decidedAt"] = view.DecidedAt,
-        ["decisionReason"] = view.DecisionReason,
-        ["lastRefusal"] = view.LastRefusedAt is null ? null : new { code = view.LastRefusalCode, message = view.LastRefusalMessage, at = view.LastRefusedAt },
-    };
+    private static PendingActionResponse Shape(PendingActionView view) => new(
+        view.Id,
+        view.Type,
+        new ProposalTarget(view.TargetUserId, view.TargetAgencyId, view.TargetEmail, view.TargetName),
+        view.Description,
+        JsonSerializer.Deserialize<JsonElement>(view.Payload),
+        view.PayloadHash,
+        view.Reason,
+        view.Status,
+        new ProposalPerson(view.ProposedByUserId, view.ProposedByName),
+        view.ProposedAt,
+        view.ExpiresAt,
+        view.DecidedByUserId,
+        view.DecidedAt,
+        view.DecisionReason,
+        view.LastRefusedAt is null ? null : new ProposalRefusal(view.LastRefusalCode, view.LastRefusalMessage, view.LastRefusedAt));
 
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
