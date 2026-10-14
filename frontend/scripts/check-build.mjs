@@ -5,7 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const dist = "dist";
+const dist = process.argv[2] ?? "dist"; // another folder can be given, which is how the tests try this check on bad builds
 const problems = [];
 
 if (!existsSync(join(dist, "index.html"))) {
@@ -26,12 +26,19 @@ const files = [];
 })(dist);
 
 const html = readFileSync(join(dist, "index.html"), "utf8");
-for (const script of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+// A browser ends a script at "</script" followed by a space, a slash or ">", in any case, so the end tag here is matched the same way.
+const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[\s/>]/gi)];
+for (const script of scripts) {
   const attributes = script[1] ?? "";
   const body = script[2] ?? "";
-  if (!/\bsrc=/.test(attributes) || body.trim() !== "") {
+  if (!/\bsrc\s*=/i.test(attributes) || body.trim() !== "") {
     problems.push("index.html has an inline script.");
   }
+}
+
+// Every script start must have been read as a whole script above. One that was not (no end tag, say) is not waved through.
+if ((html.match(/<script\b/gi) ?? []).length !== scripts.length) {
+  problems.push("index.html has a script this check could not read.");
 }
 
 if (/<style\b/i.test(html)) problems.push("index.html has an inline <style>.");

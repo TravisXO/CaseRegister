@@ -122,6 +122,36 @@ describe("what the site is served under", () => {
   });
 });
 
+const allowedHosts = new Set(["challenges.cloudflare.com", "localhost"]);
+
+/** The web addresses in some text whose host is not exactly one of the allowed ones. Compares the host, never a piece of the text. */
+function outsideAddresses(text: string): string[] {
+  return [...text.matchAll(/https?:\/\/[^\s"'`)]+/g)].map((match) => match[0]).filter((address) => {
+    try {
+      return !allowedHosts.has(new URL(address).hostname);
+    } catch {
+      return true; // an address that cannot be read is not waved through
+    }
+  });
+}
+
+describe("the address check", () => {
+  it("allows the exact hosts, with any path or port", () => {
+    expect(outsideAddresses("https://challenges.cloudflare.com/turnstile/v0/api.js and https://localhost:5173/staff/setup")).toEqual([]);
+  });
+
+  it.each([
+    "https://challenges.cloudflare.com.evil.example/api.js",
+    "https://evil.example/?next=challenges.cloudflare.com",
+    "https://evil.example/challenges.cloudflare.com",
+    "https://challenges.cloudflare.com@evil.example/",
+    "https://localhost.evil.example/",
+    "https://notchallenges.cloudflare.com/",
+  ])("does not allow %s", (address) => {
+    expect(outsideAddresses(`see ${address} here`)).toEqual([address]);
+  });
+});
+
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((name) => {
     const path = join(directory, name);
@@ -137,10 +167,10 @@ describe("the source", () => {
   const files = sourceFiles("src");
 
   it("names no outside address except Turnstile's script", () => {
-    const found = files.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/https?:\/\/[^\s"'`)]+/g)].map((match) => `${relative("src", file)}: ${match[0]}`));
+    // Allowed: Turnstile's script address, and localhost in a comment's example of the staff setup link.
+    const found = files.flatMap((file) => outsideAddresses(readFileSync(file, "utf8")).map((address) => `${relative("src", file)}: ${address}`));
 
-    // The first is the script address, the second the staff setup link in a comment's example, and the rest are the standard's own URIs.
-    expect(found.filter((line) => !line.includes("challenges.cloudflare.com") && !line.includes("localhost"))).toEqual([]);
+    expect(found).toEqual([]);
   });
 
   it("never touches the browser's storage while the app is used", async () => {
