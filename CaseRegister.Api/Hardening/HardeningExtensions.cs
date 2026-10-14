@@ -90,6 +90,7 @@ public static class HardeningExtensions
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
             options.JsonSerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow; // Default: Skip.
             options.JsonSerializerOptions.MaxDepth = RequestLimits.MaxJsonDepth; // Default: 64.
+            options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.Strict; // Default: a number may arrive as text.
         });
 
     /// <summary>The middleware in the order that matters. Call it first, before anything else is added to the pipeline.</summary>
@@ -136,7 +137,17 @@ public static class HardeningExtensions
     }
 
     /// <summary>Registers the API description. It is only ever served in Development (see <see cref="MapApiReference"/>).</summary>
-    public static IServiceCollection AddApiDescription(this IServiceCollection services) => services.AddOpenApi();
+    public static IServiceCollection AddApiDescription(this IServiceCollection services)
+    {
+        // The description is built from these JSON options, not the MVC ones, so they say the same things: enums are their names and numbers are numbers.
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
+            options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+        });
+
+        return services.AddOpenApi();
+    }
 
     /// <summary>The API description and its reference page. Development only: in any other environment neither is mapped at all.</summary>
     public static WebApplication MapApiReference(this WebApplication app)

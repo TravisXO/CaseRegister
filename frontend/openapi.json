@@ -1927,15 +1927,7 @@
             "name": "page",
             "in": "query",
             "schema": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "string"
-                }
-              ],
+              "type": "integer",
               "format": "int32",
               "default": 1
             }
@@ -1944,15 +1936,7 @@
             "name": "pageSize",
             "in": "query",
             "schema": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "string"
-                }
-              ],
+              "type": "integer",
               "format": "int32",
               "default": 25
             }
@@ -4625,15 +4609,7 @@
             "type": "string"
           },
           "certificateYear": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int32"
           },
           "flags": {
@@ -4647,15 +4623,7 @@
             "format": "date-time"
           },
           "reapplicationCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int32"
           },
           "suggestedAgencies": {
@@ -4678,21 +4646,7 @@
             "$ref": "#/components/schemas/AuditBreakKind"
           },
           "sequence": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ],
+            "type": "integer",
             "format": "int64",
             "nullable": true
           },
@@ -4702,7 +4656,16 @@
         }
       },
       "AuditBreakKind": {
-        "type": "integer"
+        "enum": [
+          "BadHash",
+          "BadPreviousHash",
+          "SequenceGap",
+          "UnknownKey",
+          "HeadMismatch",
+          "AnchorMismatch",
+          "AnchorTampered",
+          "AnchorsUnreadable"
+        ]
       },
       "AuditEntryResponse": {
         "required": [
@@ -4724,15 +4687,7 @@
         "type": "object",
         "properties": {
           "sequence": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int64"
           },
           "occurredAt": {
@@ -4823,39 +4778,15 @@
             }
           },
           "page": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int32"
           },
           "pageSize": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int32"
           },
           "total": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int64"
           }
         }
@@ -4877,60 +4808,22 @@
             "type": "boolean"
           },
           "entriesChecked": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int64"
           },
           "headSequence": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int64"
           },
           "anchorsChecked": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int32"
           },
           "anchorStoreConfigured": {
             "type": "boolean"
           },
           "fromAnchorSequence": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ],
+            "type": "integer",
             "format": "int64",
             "nullable": true
           },
@@ -5078,7 +4971,12 @@
       },
       "JsonElement": { },
       "MembershipClass": {
-        "type": "integer"
+        "enum": [
+          "Full",
+          "Associate",
+          "Student",
+          "Honorary"
+        ]
       },
       "MessageResponse": {
         "required": [
@@ -5181,10 +5079,29 @@
         }
       },
       "PendingActionStatus": {
-        "type": "integer"
+        "enum": [
+          "Pending",
+          "Confirmed",
+          "Rejected",
+          "Withdrawn",
+          "Expired"
+        ]
       },
       "PendingActionType": {
-        "type": "integer"
+        "enum": [
+          "AssignRole",
+          "RemoveRole",
+          "VerifyPractisingCertificate",
+          "ReactivateUser",
+          "ReactivateAgency",
+          "ResetTwoFactor",
+          "ApproveApplication",
+          "RejectApplication",
+          "InviteStaff",
+          "SuspendUser",
+          "EndSessions",
+          "SuspendAgency"
+        ]
       },
       "ProbeBody": {
         "required": [
@@ -5197,15 +5114,7 @@
             "type": "string"
           },
           "count": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int32"
           }
         }
@@ -5222,21 +5131,7 @@
             "nullable": true
           },
           "status": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ],
+            "type": "integer",
             "format": "int32",
             "nullable": true
           },
@@ -5460,7 +5355,13 @@
         }
       },
       "Role": {
-        "type": "integer"
+        "enum": [
+          "RegisteredAgent",
+          "AgencyComplianceOfficer",
+          "CaseReviewer",
+          "Admin",
+          null
+        ]
       },
       "SessionInfo": {
         "required": [
@@ -5570,15 +5471,7 @@
             "type": "string"
           },
           "certificateYear": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              }
-            ],
+            "type": "integer",
             "format": "int32"
           },
           "turnstileToken": {
@@ -5653,21 +5546,7 @@
             "nullable": true
           },
           "status": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ],
+            "type": "integer",
             "format": "int32",
             "nullable": true
           },
