@@ -504,3 +504,6 @@ App_Data/
 
 # Test coverage output (CI uploads it as an artifact)
 coverage/
+
+# The front end's development settings hold only Cloudflare's public Turnstile test key
+!frontend/.env.development

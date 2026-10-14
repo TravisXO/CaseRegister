@@ -1,0 +1,46 @@
+import "@testing-library/jest-dom/vitest";
+import { cleanup, configure } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
+import { forgetCsrfToken, onSessionEnded } from "../api/client";
+import { server } from "./server";
+
+vi.stubEnv("VITE_TURNSTILE_SITE_KEY", "test-site-key");
+
+// A slow or busy machine (a continuous-integration runner, say) should not make a test fail for waiting a second.
+configure({ asyncUtilTimeout: 5000 });
+
+// The tests run in Node, whose fetch needs a full address. The app only ever uses addresses on its own site (/api/...), as in a browser.
+const nodeFetch = globalThis.fetch;
+globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) =>
+  nodeFetch(typeof input === "string" && input.startsWith("/") ? new URL(input, window.location.href) : input, init);
+
+beforeAll(() => {
+  server.listen({ onUnhandledFrame: "error" });
+});
+
+beforeEach(() => {
+  // A stand-in for Cloudflare's script: the check passes at once, and gives a new token each time it is reset.
+  let count = 0;
+  window.turnstile = {
+    render: (_container, options) => {
+      count += 1;
+      (options.callback as (token: string) => void)(`token-${count}`);
+
+      return "widget-1";
+    },
+    reset: () => undefined,
+    remove: () => undefined,
+  };
+});
+
+afterEach(() => {
+  cleanup();
+  server.resetHandlers();
+  forgetCsrfToken();
+  onSessionEnded(null);
+  window.history.replaceState(null, "", "/");
+});
+
+afterAll(() => {
+  server.close();
+});

@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+/* Plain on purpose: proper design comes later. */
+:root {
+  color-scheme: light;
+}
+
+@utility btn {
+  @apply inline-flex min-h-11 items-center justify-center rounded border px-4 py-2 text-base font-medium focus:outline-2 focus:outline-offset-2 focus:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+@utility alert {
+  @apply mb-4 rounded border p-3 text-sm;
+}
+
+@layer components {
+  .page { @apply mx-auto w-full max-w-3xl px-4 py-6; }
+  .card { @apply rounded border border-slate-300 bg-white p-4; }
+  .heading { @apply mb-4 text-2xl font-semibold text-slate-900; }
+  .subheading { @apply mb-2 mt-6 text-lg font-semibold text-slate-900; }
+  .label { @apply mb-1 block text-sm font-medium text-slate-800; }
+  .hint { @apply mb-1 block text-sm text-slate-600; }
+  .input { @apply block w-full rounded border border-slate-500 bg-white px-3 py-2 text-base text-slate-900 focus:outline-2 focus:outline-offset-2 focus:outline-blue-700; }
+  .input-error { @apply border-red-700; }
+  .field-error { @apply mt-1 block text-sm text-red-800; }
+  .btn-primary { @apply btn border-blue-800 bg-blue-800 text-white hover:bg-blue-900; }
+  .btn-secondary { @apply btn border-slate-500 bg-white text-slate-900 hover:bg-slate-100; }
+  .btn-danger { @apply btn border-red-800 bg-red-800 text-white hover:bg-red-900; }
+  .link { @apply text-blue-800 underline hover:text-blue-950; }
+  .alert-error { @apply alert border-red-700 bg-red-50 text-red-950; }
+  .alert-warning { @apply alert border-amber-600 bg-amber-50 text-amber-950; }
+  .alert-info { @apply alert border-blue-700 bg-blue-50 text-blue-950; }
+  .alert-success { @apply alert border-green-700 bg-green-50 text-green-950; }
+  .table { @apply w-full border-collapse text-left text-sm; }
+  .table th, .table td { @apply border-b border-slate-200 px-2 py-2 align-top; }
+}
