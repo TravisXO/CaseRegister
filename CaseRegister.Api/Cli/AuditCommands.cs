@@ -69,7 +69,7 @@ public static class AuditCommands
 
         if (anchor is null)
         {
-            terminal.WriteLine("Nothing was anchored: either the audit log is empty or no anchor store is configured (Audit:AnchorFilePath).");
+            terminal.WriteLine("Nothing was anchored: either the audit log is empty or no anchor store is configured (Audit:R2:* in production, Audit:AnchorFilePath in Development).");
 
             return Failed;
         }

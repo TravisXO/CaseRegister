@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { ESLint } from "eslint";
 import react from "eslint-plugin-react";
@@ -119,6 +119,47 @@ describe("what the site is served under", () => {
 
   it("sends every path to the app, so addresses like /profile work on a reload", () => {
     expect(readFileSync("public/_redirects", "utf8")).toMatch(/^\/\*\s+\/index\.html\s+200/);
+  });
+
+  it("tells browsers to keep to https for a year, and cannot be framed by anything", () => {
+    expect(headers).toMatch(/Strict-Transport-Security: max-age=31536000; includeSubDomains\s*$/m);
+    expect(headers).not.toMatch(/Strict-Transport-Security:.*preload/);
+    expect(directives["frame-ancestors"]).toEqual(["'none'"]);
+  });
+
+  it("keeps the site out of search engines three ways: a header, a meta tag and robots.txt", () => {
+    expect(headers).toMatch(/X-Robots-Tag: noindex, nofollow/);
+    expect(readFileSync("index.html", "utf8")).toMatch(/<meta name="robots" content="[^"]*noindex[^"]*"/);
+    expect(readFileSync("public/robots.txt", "utf8")).toMatch(/^User-agent: \*\s*\nDisallow: \/\s*$/m);
+  });
+
+  it("keeps built files for a year and never lets the page itself or its other addresses be cached for long", () => {
+    const [everything = "", assets = ""] = headers.split(/^\/assets\/\*$/m);
+
+    expect(everything).toMatch(/Cache-Control: no-cache\s*$/m);
+    expect(assets).toMatch(/^\s+! Cache-Control$/m);
+    expect(assets).toMatch(/Cache-Control: public, max-age=31536000, immutable/);
+    expect(everything).not.toContain("immutable");
+  });
+
+  it("names no secret, key or token anywhere in the headers or the redirects", () => {
+    for (const text of [headers, readFileSync("public/_redirects", "utf8"), readFileSync("public/_routes.json", "utf8")]) {
+      expect(text).not.toMatch(/secret|password|api[_-]?key|token\s*[:=]\s*\S{12,}/i);
+    }
+  });
+
+  it("sends only /api/* to the Pages Function, which sits where Pages looks for it", () => {
+    const routes = JSON.parse(readFileSync("public/_routes.json", "utf8")) as { version: number; include: string[]; exclude: string[] };
+
+    expect(routes).toEqual({ version: 1, include: ["/api/*"], exclude: [] });
+    expect(existsSync("functions/api/[[path]].ts")).toBe(true);
+  });
+
+  it("serves the preview under the same first block of headers, without the one a browser would remember for localhost", () => {
+    const config = readFileSync("vite.config.ts", "utf8");
+
+    expect(config).toContain('match[1] !== "Strict-Transport-Security"');
+    expect(config).toContain("blocks === 1");
   });
 });
 

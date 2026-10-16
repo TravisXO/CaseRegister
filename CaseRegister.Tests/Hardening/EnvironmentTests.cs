@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -79,6 +81,23 @@ public sealed class EnvironmentTests(PostgresFixture postgres)
                 Assert.DoesNotContain("swagger", text, StringComparison.OrdinalIgnoreCase);
             }
         }
+    }
+
+    [Fact]
+    public async Task Production_starts_with_no_demo_data_and_the_demo_command_is_refused_there()
+    {
+        await using var factory = await ProductionAsync();
+        using var client = factory.Https();
+        using var live = await client.SendAsync(HttpMethod.Get, "/health/live");
+        var terminal = new Auth.ScriptedTerminal([], []);
+
+        var exit = await CaseRegister.Api.Cli.DemoCommands.RunAsync([CaseRegister.Api.Cli.DemoCommands.Name], factory.Services, terminal);
+
+        Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+        Assert.Equal(CaseRegister.Api.Cli.DemoCommands.Refused, exit);
+        Assert.Equal(0, await factory.WithDbAsync(db => db.Users.CountAsync()));
+        Assert.Equal(0, await factory.WithDbAsync(db => db.Agencies.CountAsync()));
+        Assert.Equal(0, await factory.WithDbAsync(db => db.MemberApplications.CountAsync()));
     }
 
     [Fact]
@@ -190,13 +209,24 @@ public sealed class EnvironmentTests(PostgresFixture postgres)
     }
 
     [Theory]
-    [InlineData("Production")]
+    [InlineData("Testing")]
     [InlineData("Development")]
-    public void No_anchor_store_at_all_is_not_a_startup_error_in_any_environment(string environment)
+    public void No_anchor_store_at_all_is_not_a_startup_error_outside_production(string environment)
     {
         var options = new AuditOptions { CurrentKeyId = ApiFactory.TestKeyId, Keys = { [ApiFactory.TestKeyId] = ApiFactory.TestKeyBase64 } };
 
         Assert.True(new AuditOptionsValidator(new FakeHostEnvironment(environment)).Validate(null, options).Succeeded);
+    }
+
+    [Fact]
+    public void Production_refuses_to_start_with_no_anchor_store_and_names_the_first_missing_setting()
+    {
+        var options = new AuditOptions { CurrentKeyId = ApiFactory.TestKeyId, Keys = { [ApiFactory.TestKeyId] = ApiFactory.TestKeyBase64 } };
+
+        var result = new AuditOptionsValidator(new FakeHostEnvironment("Production")).Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains("Audit:R2:Endpoint", result.FailureMessage, StringComparison.Ordinal);
     }
 
     // --- Development only ----------------------------------------------------------------------------------------
@@ -206,6 +236,9 @@ public sealed class EnvironmentTests(PostgresFixture postgres)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment, ContentRootPath = AppContext.BaseDirectory });
         builder.WebHost.UseTestServer();
+
+        // Production will not start without the proxy secret, and the clients below send it, as the real proxy does.
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Proxy:Secret"] = ApiFactory.ProxyTestSecret });
         builder.Services.AddSingleton(new LogOutputOverride(new CapturingLogEventSink()));
         builder.AddApiHardening();
         builder.Services.AddApiDescription();
@@ -224,6 +257,7 @@ public sealed class EnvironmentTests(PostgresFixture postgres)
     {
         var client = app.GetTestClient();
         client.BaseAddress = new Uri("https://localhost");
+        client.DefaultRequestHeaders.Add(ApiFactory.ProxyHeader, ApiFactory.ProxyTestSecret);
 
         return client;
     }

@@ -1,0 +1,3 @@
+# A demonstration with made-up data. Nothing here is for search engines.
+User-agent: *
+Disallow: /

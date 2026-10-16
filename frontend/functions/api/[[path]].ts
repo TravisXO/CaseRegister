@@ -1,0 +1,185 @@
+/**
+ * The Cloudflare Pages Function that sends /api/* on to the API on Render. It is the only way in: the API refuses any request that does
+ * not carry the secret this adds.
+ *
+ *  - It forwards the method, the body, the cookies and a short list of other headers, and nothing else. Whatever else a visitor sends
+ *    (including their own copies of the secret header, X-Forwarded-For and CF-Connecting-IP) is never passed on.
+ *  - The visitor's address comes from CF-Connecting-IP, which only Cloudflare's edge sets, and goes to the API in X-Client-Ip. The API believes
+ *    it only on a request that carries the secret.
+ *  - Set-Cookie comes back untouched, so the __Host- cookies work.
+ *  - The body is capped, the call has a timeout, and no body, cookie or secret is ever logged. (There is no logging here at all.)
+ *  - It answers only on the production hostname, so a preview deployment of this site cannot reach the production API.
+ *
+ * Settings (Cloudflare Pages, Production environment only): API_ORIGIN, PROXY_SECRET, PRODUCTION_HOSTNAME; UPSTREAM_TIMEOUT_MS is optional.
+ */
+
+export interface ProxyEnv {
+  /** The API's address, such as https://caseregister-api.onrender.com (https, no path). */
+  API_ORIGIN?: string;
+  /** The shared secret. The same value as Proxy__Secret (or Proxy__NextSecret) on Render. */
+  PROXY_SECRET?: string;
+  /** The one hostname this site answers /api on, such as caseregister.pages.dev. Preview deployments have other hostnames. */
+  PRODUCTION_HOSTNAME?: string;
+  /** How long to wait for the API, in milliseconds. Render's free plan can take about a minute to wake. */
+  UPSTREAM_TIMEOUT_MS?: string;
+}
+
+interface ProxyContext {
+  request: Request;
+  env: ProxyEnv;
+}
+
+/** The API's own limit for a request body is 64 KiB; nothing larger is worth sending. */
+export const MAX_BODY_BYTES = 64 * 1024;
+export const DEFAULT_TIMEOUT_MS = 75_000;
+export const SECRET_HEADER = "X-Proxy-Secret";
+export const CLIENT_IP_HEADER = "X-Client-Ip";
+const MIN_SECRET_LENGTH = 32;
+
+const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const METHODS_ALLOWED = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
+
+/** What is passed on from the visitor's request. Everything else is dropped, which is how forwarding headers and fake secrets never get through. */
+const REQUEST_HEADERS_FORWARDED = ["accept", "accept-language", "content-type", "cookie", "x-csrf-token", "user-agent"];
+
+/** Headers that describe one connection, not the answer. */
+const RESPONSE_HEADERS_DROPPED = ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "server", "x-powered-by"];
+
+function problem(status: number, title: string): Response {
+  return new Response(JSON.stringify({ title, status }), {
+    status,
+    headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" },
+  });
+}
+
+/** The API origin, or null if it is not an https address with no path (so a mistake in the setting cannot send requests somewhere else). */
+function apiOrigin(env: ProxyEnv): URL | null {
+  try {
+    const origin = new URL(env.API_ORIGIN ?? "");
+
+    return origin.protocol === "https:" && origin.pathname === "/" && origin.search === "" && origin.username === "" ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function timeoutFrom(env: ProxyEnv): number {
+  const asked = Number(env.UPSTREAM_TIMEOUT_MS);
+
+  return Number.isFinite(asked) && asked >= 1000 && asked <= 120_000 ? asked : DEFAULT_TIMEOUT_MS;
+}
+
+/** The whole body, or null if it is larger than the limit (reading stops as soon as it is). */
+async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (body === null) {
+    return new Uint8Array(0);
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+
+      return null;
+    }
+
+    chunks.push(value);
+  }
+
+  const all = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    all.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return all;
+}
+
+export async function handle(request: Request, env: ProxyEnv): Promise<Response> {
+  const origin = apiOrigin(env);
+  const secret = env.PROXY_SECRET ?? "";
+  if (origin === null || secret.length < MIN_SECRET_LENGTH || (env.PRODUCTION_HOSTNAME ?? "") === "") {
+    // Not set up (or not meant to run here): say so without saying which setting.
+    return problem(503, "This site is not available");
+  }
+
+  const url = new URL(request.url);
+  if (url.hostname.toLowerCase() !== (env.PRODUCTION_HOSTNAME ?? "").toLowerCase()) {
+    return problem(404, "Not found");
+  }
+
+  // Only /api/..., and the address is built by joining text to the API's origin, so nothing in the path can name another host ("//host/...").
+  if (!url.pathname.startsWith("/api/")) {
+    return problem(404, "Not found");
+  }
+
+  const method = request.method.toUpperCase();
+  if (!METHODS_ALLOWED.has(method)) {
+    return problem(405, "Method not allowed");
+  }
+
+  const target = new URL(origin.origin + url.pathname + url.search);
+  if (target.origin !== origin.origin) {
+    return problem(404, "Not found");
+  }
+
+  const headers = new Headers();
+  for (const name of REQUEST_HEADERS_FORWARDED) {
+    const value = request.headers.get(name);
+    if (value !== null) {
+      headers.set(name, value);
+    }
+  }
+
+  headers.set(SECRET_HEADER, secret);
+
+  // Set by Cloudflare's edge, never by the visitor. Missing only when this runs outside Cloudflare (a local test).
+  const visitor = request.headers.get("CF-Connecting-IP");
+  if (visitor !== null && visitor !== "") {
+    headers.set(CLIENT_IP_HEADER, visitor);
+  }
+
+  let body: Uint8Array<ArrayBuffer> | undefined;
+  if (METHODS_WITH_BODY.has(method)) {
+    const declared = Number(request.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      return problem(413, "Request too large");
+    }
+
+    const read = await readCapped(request.body, MAX_BODY_BYTES);
+    if (read === null) {
+      return problem(413, "Request too large");
+    }
+
+    body = read.byteLength > 0 ? read : undefined;
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, { method, headers, body, redirect: "manual", signal: AbortSignal.timeout(timeoutFrom(env)) });
+  } catch (error) {
+    // Nothing about the failure is passed on, and nothing is logged: the request held cookies and perhaps a body.
+    return error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError") ? problem(504, "The API took too long to answer") : problem(502, "The API could not be reached");
+  }
+
+  // Headers are copied as they are, so every Set-Cookie (there can be several) arrives exactly as the API wrote it.
+  const answer = new Headers(upstream.headers);
+  for (const name of RESPONSE_HEADERS_DROPPED) {
+    answer.delete(name);
+  }
+
+  answer.set("X-Robots-Tag", "noindex, nofollow");
+
+  return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: answer });
+}
+
+export const onRequest = ({ request, env }: ProxyContext): Promise<Response> => handle(request, env);

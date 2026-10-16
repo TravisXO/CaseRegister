@@ -178,6 +178,7 @@ public static class DependencyInjection
                 options.CurrentKeyId = section["CurrentKeyId"] ?? string.Empty;
                 options.PreviousKeyId = section["PreviousKeyId"];
                 options.AnchorFilePath = section["AnchorFilePath"];
+                section.GetSection("R2").Bind(options.R2);
                 foreach (var key in section.GetSection("Keys").GetChildren())
                 {
                     options.Keys[key.Key] = key.Value ?? string.Empty;
@@ -187,10 +188,18 @@ public static class DependencyInjection
 
         services.AddSingleton<IAuditKeyring, AuditKeyring>();
 
-        // A local file for now; Cloudflare R2 and a scheduled job come later, behind the same interface.
+        // Where daily anchors go. Production has a Cloudflare R2 bucket (and refuses to start without one); Development may use a local file
+        // or nothing. There is no scheduler: the first audit entry written on a new Zambian day writes that day's anchor (see ChainedAuditLog).
+        services.AddHttpClient(R2AuditAnchorSink.ClientName, client => client.Timeout = ExternalCalls.ClientTimeout).AddExternalCallResilience();
         services.AddSingleton<IAuditAnchorSink>(provider =>
         {
-            var path = provider.GetRequiredService<IOptions<AuditOptions>>().Value.AnchorFilePath;
+            var configured = provider.GetRequiredService<IOptions<AuditOptions>>().Value;
+            if (configured.R2.AnySet)
+            {
+                return new R2AuditAnchorSink(provider.GetRequiredService<IHttpClientFactory>(), provider.GetRequiredService<IOptions<AuditOptions>>(), provider.GetRequiredService<TimeProvider>());
+            }
+
+            var path = configured.AnchorFilePath;
             if (string.IsNullOrWhiteSpace(path))
             {
                 return new NoAuditAnchorSink();
@@ -301,8 +310,14 @@ internal sealed class AuditOptionsValidator(Microsoft.Extensions.Hosting.IHostEn
         }
 
         // The anchors are there so someone with only the database cannot rewrite history unnoticed. A file on the same machine does not do that.
-        return !environment.IsDevelopment() && !string.IsNullOrWhiteSpace(options.AnchorFilePath)
-            ? ValidateOptionsResult.Fail("Audit:AnchorFilePath is the local file anchor store, which is for Development only. Remove it; an anchor store for other environments comes later.")
+        if (!environment.IsDevelopment() && !string.IsNullOrWhiteSpace(options.AnchorFilePath))
+        {
+            return ValidateOptionsResult.Fail("Audit:AnchorFilePath is the local file anchor store, which is for Development only. Remove it and configure the R2 bucket (Audit:R2:*).");
+        }
+
+        // Production must have the bucket. Anywhere else it is optional, but if it is started it has to be complete.
+        return (environment.IsProduction() || options.R2.AnySet) && options.R2.Problem() is { } bucketProblem
+            ? ValidateOptionsResult.Fail(bucketProblem)
             : ValidateOptionsResult.Success;
     }
 }

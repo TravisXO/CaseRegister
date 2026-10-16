@@ -19,7 +19,8 @@ public class MembershipPrefixTests
     {
         using var factory = ApiFactory.WithoutDatabase(settings => settings.Remove(SettingKey));
 
-        Assert.Equal("ZIEA", PrefixIn(factory));
+        // Neutral on purpose: the public site carries no association's name. A deployment can still set its own.
+        Assert.Equal("EA", PrefixIn(factory));
     }
 
     [Fact]
@@ -66,7 +67,7 @@ public class MembershipPrefixTests
     }
 
     [Fact]
-    public void The_brand_appears_only_in_appsettings_json_and_never_in_the_code()
+    public void No_association_name_appears_in_the_code_or_the_shipped_settings()
     {
         // Generated migrations are the one exception: they are a record of what was applied to a database.
         var sourceFolders = new[] { "CaseRegister.Domain", "CaseRegister.Application", "CaseRegister.Infrastructure", "CaseRegister.Api" };
@@ -82,8 +83,12 @@ public class MembershipPrefixTests
 
         Assert.Empty(offenders);
 
-        var appsettings = File.ReadAllText(Path.Combine(SolutionGraph.SolutionRoot, "CaseRegister.Api", "appsettings.json"));
-        Assert.Equal(1, appsettings.Split("ZIEA", StringSplitOptions.None).Length - 1);
+        // The shipped settings are what runs in production: no name there either. (The front end's footer says "not affiliated", which is the one place it is named.)
+        foreach (var settings in new[] { "appsettings.json", "appsettings.Development.json" })
+        {
+            var text = File.ReadAllText(Path.Combine(SolutionGraph.SolutionRoot, "CaseRegister.Api", settings));
+            Assert.DoesNotContain("ziea", text, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private static bool IsUnder(string path, string folderName) =>

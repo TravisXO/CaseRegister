@@ -64,7 +64,11 @@ internal sealed class DatabaseTicketStore(
         db.Sessions.Add(session);
         await db.SaveChangesAsync();
 
-        await EnforceSessionLimitAsync(scope.ServiceProvider, db, userId, now);
+        // There is no scheduler, so a sign-in does the housekeeping: every session that has expired, whoever's it was, is removed.
+        // (A session nobody comes back to is otherwise never read again, and its row would stay for ever.)
+        await db.Sessions.Where(s => s.ExpiresAt <= now).ExecuteDeleteAsync();
+
+        await EnforceSessionLimitAsync(scope.ServiceProvider, db, userId);
 
         return sessionId;
     }
@@ -127,11 +131,9 @@ internal sealed class DatabaseTicketStore(
         await db.Sessions.Where(s => s.SessionHash == hash).ExecuteDeleteAsync();
     }
 
-    // At most three sessions per user: a fourth sign-in ends the oldest. Expired ones are swept at the same time.
-    private static async Task EnforceSessionLimitAsync(IServiceProvider services, AppDbContext db, Guid userId, DateTimeOffset now)
+    // At most three sessions per user: a fourth sign-in ends the oldest. (Expired ones are already gone: see StoreAsync.)
+    private static async Task EnforceSessionLimitAsync(IServiceProvider services, AppDbContext db, Guid userId)
     {
-        await db.Sessions.Where(s => s.UserId == userId && s.ExpiresAt <= now).ExecuteDeleteAsync();
-
         var excess = await db.Sessions
             .Where(s => s.UserId == userId)
             .OrderByDescending(s => s.CreatedAt)

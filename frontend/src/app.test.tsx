@@ -1,7 +1,8 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ErrorBoundary } from "./components/States";
 import { admin, agent, fakeApi, problem, recorded, renderApp, resetRecorded, signedInAs, signedOut } from "./test/helpers";
 import { server } from "./test/server";
 import type { Profile } from "./api/types";
@@ -257,5 +258,43 @@ describe("every page", () => {
 
     expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByText("Independent concept, not affiliated with ZIEA")).toBeInTheDocument();
+  });
+
+  it.each(["/sign-in", "/sign-up", "/staff/setup", "/two-factor/set-up", "/no/such/page"])("carries the notice that all data is fake: %s", async (path) => {
+    signedOut();
+
+    renderApp(path);
+
+    expect(await screen.findByText("Demo: all data is fake.")).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("Do not enter real personal details");
+  });
+
+  it("carries the same notice once signed in, as an admin or an agent", async () => {
+    signedInAs(agent);
+    certificates();
+    const { unmount } = renderApp("/profile");
+    expect(await screen.findByText("Demo: all data is fake.")).toBeInTheDocument();
+    unmount();
+
+    signedInAs(admin);
+    renderApp("/sessions");
+    expect(await screen.findByText("Demo: all data is fake.")).toBeInTheDocument();
+  });
+
+  it("carries it on the page shown when something breaks, too", () => {
+    const Broken = (): never => {
+      throw new Error("a page failed");
+    };
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(
+      <ErrorBoundary>
+        <Broken />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Something went wrong" })).toBeInTheDocument();
+    expect(screen.getByText("Demo: all data is fake.")).toBeInTheDocument();
+    quiet.mockRestore();
   });
 });

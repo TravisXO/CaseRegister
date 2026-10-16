@@ -11,7 +11,7 @@ public sealed class OptionsValidationTests
     // Every options class in the solution. A new one has to be added here, which means it has to be validated.
     private static readonly string[] _expectedOptionsClasses =
     [
-        "AuditOptions", "DatabaseOptions", "ExternalCallOptions", "MembershipOptions", "RateLimitingOptions", "StaffInviteOptions", "TurnstileOptions", "TwoFactorOptions",
+        "AuditOptions", "DatabaseOptions", "ExternalCallOptions", "MembershipOptions", "ProxyOptions", "RateLimitingOptions", "StaffInviteOptions", "TurnstileOptions", "TwoFactorOptions",
     ];
 
     [Fact]

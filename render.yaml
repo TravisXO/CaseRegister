@@ -1,0 +1,59 @@
+# Render blueprint for the API: Docker (the Dockerfile in this folder), Frankfurt, free plan.
+#
+# No secret is in this file. Every setting that is a secret (or that depends on your own accounts) has "sync: false", which means Render asks
+# for the value when the blueprint is first applied and never stores it here. docs/deployment.md says how to make each one.
+# Environment variable names use "__" where the setting name has a ":" (Audit__Keys__k1 is Audit:Keys:k1).
+services:
+  - type: web
+    name: caseregister-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: frankfurt
+    plan: free
+    branch: main
+
+    # The platform asks this address whether the app is alive. It checks nothing else, so it never wakes the database, and it is the one
+    # address the API answers without the proxy secret.
+    healthCheckPath: /health/live
+
+    # Deploy a commit only once the CI checks on it have passed.
+    autoDeployTrigger: checksPass
+
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+
+      # The database: the application's own least-privilege login (case_register_app) on the production branch, never the owner.
+      - key: ConnectionStrings__Default
+        sync: false
+
+      # The audit chain's signing key (base64, 32 bytes) and the R2 bucket the daily anchors are written to.
+      - key: Audit__Keys__k1
+        sync: false
+      - key: Audit__R2__Endpoint
+        sync: false
+      - key: Audit__R2__Bucket
+        sync: false
+      - key: Audit__R2__AccessKeyId
+        sync: false
+      - key: Audit__R2__SecretAccessKey
+        sync: false
+
+      # The certificate (a base64 PFX and its password) that encrypts the data protection keys kept in the database.
+      - key: DataProtection__CertificateBase64
+        sync: false
+      - key: DataProtection__CertificatePassword
+        sync: false
+
+      # Cloudflare Turnstile's secret key for the production site key.
+      - key: Turnstile__SecretKey
+        sync: false
+
+      # The secret the Cloudflare Pages Function sends with every request. Without it the API answers nothing but /health/live.
+      - key: Proxy__Secret
+        sync: false
+
+      # Where the staff setup link points: https://<your Pages hostname>/staff/setup
+      - key: Invites__SetupPageUrl
+        sync: false

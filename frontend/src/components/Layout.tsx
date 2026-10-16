@@ -3,6 +3,7 @@ import { useState } from "react";
 import { describeError } from "../api/client";
 import type { Profile, Role } from "../api/types";
 import { hasRole, useSession } from "../auth/session";
+import { DemoNotice } from "./DemoNotice";
 
 export interface MenuItem {
   to: string;
@@ -74,6 +75,7 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+      <DemoNotice />
       <header className="border-b border-slate-300 bg-white">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <Link to="/" className="text-lg font-semibold">
