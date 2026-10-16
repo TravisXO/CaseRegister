@@ -15,6 +15,13 @@ if (args.Length > 0 && args[0] == HealthCheckCommand.Name)
 
 var builder = WebApplication.CreateBuilder(args);
 
+// "dotnet run -- migrate": applies pending migrations from the administrator's machine. It needs only the owner connection string,
+// so it comes before the services are added (the rest of the application's settings are not needed, and not asked for).
+if (args.Length > 0 && args[0] == MigrateCommand.Name)
+{
+    return await MigrateCommand.RunAsync(args, builder.Configuration, new ConsoleTerminal());
+}
+
 // Add services to the container.
 
 builder.AddApiHardening();

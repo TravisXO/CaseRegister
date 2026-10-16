@@ -30,6 +30,17 @@ public static class DatabaseMigrator
         return (await context.Database.GetPendingMigrationsAsync(cancellationToken)).Any();
     }
 
+    /// <summary>The names of the migrations the database has not had yet, oldest first. Needs the owner connection, like applying them does.</summary>
+    public static async Task<IReadOnlyList<string>> GetPendingMigrationsAsync(string migrationsConnectionString, CancellationToken cancellationToken = default)
+    {
+        var builder = new DbContextOptionsBuilder<AppDbContext>();
+        AppDbContextOptions.Configure(builder, migrationsConnectionString);
+
+        await using var context = new AppDbContext(builder.Options);
+
+        return [.. await context.Database.GetPendingMigrationsAsync(cancellationToken)];
+    }
+
     public static Task MigrateDatabaseAsync(this IServiceProvider services, CancellationToken cancellationToken = default)
     {
         var connectionString = services.GetRequiredService<IOptions<DatabaseOptions>>().Value.Migrations;
