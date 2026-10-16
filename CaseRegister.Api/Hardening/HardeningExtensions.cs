@@ -35,8 +35,12 @@ public static class HardeningExtensions
         // Serilog is the only logger: the console provider the host adds by default would write the same events a second time, unredacted.
         builder.Logging.ClearProviders();
 
+        // Each host keeps its own logger. Left to its default, Serilog also sets the static Log.Logger, which every host in the same process
+        // shares, and closes it when any one of them stops: with several hosts in one process (the tests) one stopping silences the rest.
+        // Nothing here uses the static logger.
         builder.Host.UseSerilog(
             (_, services, configuration) => LoggingSetup.Configure(configuration, isDevelopment, services.GetService<LogOutputOverride>()?.Sink),
+            preserveStaticLogger: true,
             writeToProviders: true);
 
         var services = builder.Services;
