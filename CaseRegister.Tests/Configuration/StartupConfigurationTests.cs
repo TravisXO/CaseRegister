@@ -137,6 +137,42 @@ public sealed class StartupConfigurationTests : IDisposable
         Assert.NotNull(client);
     }
 
+    // --- Production: every secret it needs ----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("ConnectionStrings:Default")]
+    [InlineData("DataProtection:CertificateBase64")]
+    [InlineData("Turnstile:SecretKey")]
+    [InlineData("Audit:Keys:k1")]
+    [InlineData("Proxy:Secret")]
+    [InlineData("Audit:R2:Endpoint")]
+    [InlineData("Audit:R2:Bucket")]
+    [InlineData("Audit:R2:AccessKeyId")]
+    [InlineData("Audit:R2:SecretAccessKey")]
+    [InlineData("Invites:SetupPageUrl")]
+    public void Production_will_not_start_without_each_setting_it_needs_and_names_the_setting_never_a_value(string setting)
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings.Remove(setting), environmentName: "Production");
+
+        var failure = AssertStartupFailsMentioning(factory, setting);
+
+        // None of the other secrets is in the message either.
+        foreach (var value in new[] { ApiFactory.ProxyTestSecret, ApiFactory.TestKeyBase64, ApiFactory.TurnstileTestSecret, "secret-access-key-for-tests", "access-key-for-tests" })
+        {
+            Assert.DoesNotContain(value, failure.ToString(), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Production_starts_when_everything_it_needs_is_present()
+    {
+        using var factory = ApiFactory.WithoutDatabase(environmentName: "Production");
+
+        using var client = factory.CreateApiClient().Http;
+
+        Assert.NotNull(client);
+    }
+
     private static Exception AssertStartupFailsMentioning(ApiFactory factory, string setting)
     {
         // The Testing environment does not load user-secrets, so nothing else supplies a value.

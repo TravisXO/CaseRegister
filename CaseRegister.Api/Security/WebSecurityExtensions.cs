@@ -184,7 +184,9 @@ public static class WebSecurityExtensions
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 
             // One proxy (Render's) sits in front of the app, so only the last hop is believed. Anything
-            // a client adds earlier in X-Forwarded-For is ignored, which stops IP spoofing.
+            // a client adds earlier in X-Forwarded-For is ignored, which stops IP spoofing. What this gives is the address Render
+            // saw, which in production is Cloudflare's, so ProxyGateMiddleware replaces it with the visitor's address (from the
+            // Pages Function, after the secret has been checked). This is also where the https scheme comes from.
             options.ForwardLimit = 1;
 
             // The default trusts only loopback. Render's proxy addresses change and the app can only be

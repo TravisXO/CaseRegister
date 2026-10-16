@@ -23,6 +23,9 @@ public sealed class AuditOptions
     /// <summary>Where the local anchor file lives (relative to the content root unless absolute). Empty means no anchor store yet.</summary>
     public string? AnchorFilePath { get; set; }
 
+    /// <summary>The Cloudflare R2 bucket the daily anchors are written to. Required in Production.</summary>
+    public AuditR2Settings R2 { get; set; } = new();
+
     /// <summary>Why the settings are not usable, or null if they are.</summary>
     public string? Problem()
     {
@@ -58,9 +61,52 @@ public sealed class AuditOptions
 }
 
 /// <summary>
+/// Where the anchors go in Cloudflare R2 (its S3 API). The credentials belong to a token that can reach this one bucket and
+/// nothing else; they come from environment variables (Audit__R2__AccessKeyId and so on), never from code.
+/// </summary>
+public sealed class AuditR2Settings
+{
+    public const string SectionName = "Audit:R2";
+
+    /// <summary>The account's R2 address, such as https://abc123.r2.cloudflarestorage.com (no bucket, no path).</summary>
+    public string? Endpoint { get; set; }
+
+    public string? Bucket { get; set; }
+
+    public string? AccessKeyId { get; set; }
+
+    public string? SecretAccessKey { get; set; }
+
+    /// <summary>True when any of the four is set: a half-configured store is a mistake, not "no store".</summary>
+    public bool AnySet => new[] { Endpoint, Bucket, AccessKeyId, SecretAccessKey }.Any(value => !string.IsNullOrWhiteSpace(value));
+
+    /// <summary>Why the settings cannot be used (naming the setting, never its value), or null if they can.</summary>
+    public string? Problem()
+    {
+        foreach (var (name, value) in new[] { ("Endpoint", Endpoint), ("Bucket", Bucket), ("AccessKeyId", AccessKeyId), ("SecretAccessKey", SecretAccessKey) })
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return $"{SectionName}:{name} is not configured. Set the Audit__R2__{name} environment variable.";
+            }
+        }
+
+        if (!Uri.TryCreate(Endpoint, UriKind.Absolute, out var endpoint) || endpoint.Scheme != Uri.UriSchemeHttps || endpoint.AbsolutePath != "/" || endpoint.Query.Length > 0)
+        {
+            return $"{SectionName}:Endpoint must be an https address with no path, such as https://<account>.r2.cloudflarestorage.com.";
+        }
+
+        // R2 and S3 bucket names: 3 to 63 lower-case letters, digits and hyphens, not starting or ending with a hyphen.
+        return Bucket!.Length is >= 3 and <= 63 && Bucket.All(character => character is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-') && Bucket[0] != '-' && Bucket[^1] != '-'
+            ? null
+            : $"{SectionName}:Bucket must be 3 to 63 lower-case letters, digits or hyphens.";
+    }
+}
+
+/// <summary>
 /// The latest sequence number and hash, written somewhere an attacker with only database access cannot reach.
 /// If the chain is later cut back or rewritten, the anchor no longer matches. The sink is replaceable: a local
-/// file now, Cloudflare R2 later.
+/// file in Development, a Cloudflare R2 bucket in Production.
 /// </summary>
 /// <param name="ZambianDate">The Zambian date it was written for, such as 2026-10-12.</param>
 /// <param name="Mac">HMAC over the other fields, so an edited anchor is noticed too.</param>

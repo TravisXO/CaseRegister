@@ -57,8 +57,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>What would have gone to the console, after redaction.</summary>
     public CapturingLogEventSink LogOutput { get; } = new();
 
-    private ApiFactory(string defaultConnectionString, Action<Dictionary<string, string?>>? adjustSettings, string? anchorFilePath = null)
+    /// <summary>The shared secret of the proxy in tests that run as Production, where the application will not start without one. At least 32 characters.</summary>
+    public const string ProxyTestSecret = "proxy-secret-for-tests-0123456789-abcdef";
+
+    public const string NextProxyTestSecret = "next-proxy-secret-for-tests-0123456789-abcd";
+
+    public const string ProxyHeader = "X-Proxy-Secret";
+
+    private ApiFactory(string defaultConnectionString, Action<Dictionary<string, string?>>? adjustSettings, string? anchorFilePath = null, string environmentName = "Testing")
     {
+        EnvironmentName = environmentName;
         // The local anchor file is for Development only, so the application is never told about it: the test host is given the store directly.
         _anchorFilePath = anchorFilePath ?? Path.Combine(Path.GetTempPath(), $"cr-test-anchors-{Guid.NewGuid():N}.jsonl");
         _settings = new Dictionary<string, string?>
@@ -80,6 +88,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             ["Audit:CurrentKeyId"] = TestKeyId,
             [$"Audit:Keys:{TestKeyId}"] = TestKeyBase64,
         };
+
+        // Production will not start without the proxy secret and the R2 bucket for the anchors. The bucket is never contacted: the test host is given its own anchor store.
+        if (environmentName == "Production")
+        {
+            _settings["Proxy:Secret"] = ProxyTestSecret;
+            _settings["Audit:R2:Endpoint"] = "https://account-for-tests.r2.cloudflarestorage.com";
+            _settings["Audit:R2:Bucket"] = "anchors-for-tests";
+            _settings["Audit:R2:AccessKeyId"] = "access-key-for-tests";
+            _settings["Audit:R2:SecretAccessKey"] = "secret-access-key-for-tests";
+        }
+
         adjustSettings?.Invoke(_settings);
     }
 
@@ -134,6 +153,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>How long a request may take. Null keeps the real limit.</summary>
     public TimeSpan? RequestTimeout { get; init; }
 
+    /// <summary>True keeps the anchor store the application chose from its own settings, instead of handing the test host a file or none.</summary>
+    public bool RealAnchorSink { get; init; }
+
     /// <summary>True leaves the rate limits as configured, instead of raising them so tests do not meet them. For tests of the settings themselves.</summary>
     public bool RealLimits { get; init; }
 
@@ -164,9 +186,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         await PostgresFixture.ExecuteAsync(owner, await File.ReadAllTextAsync(GrantScriptPath));
         PostgresFixture.ReleaseConnections(owner);
 
-        return new ApiFactory(PostgresFixture.AsAppRole(owner), adjustSettings, anchorFilePath)
+        return new ApiFactory(PostgresFixture.AsAppRole(owner), adjustSettings, anchorFilePath, environmentName)
         {
-            EnvironmentName = environmentName,
             RequestTimeout = requestTimeout,
             GlobalPerIpPerMinute = globalPerIpPerMinute,
             ConfigureServices = configureServices,
@@ -179,9 +200,18 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         };
     }
 
+    /// <summary>The application pointed at an empty database that has never been migrated, to show what starting it does and does not do to the schema.</summary>
+    public static async Task<ApiFactory> CreateUnmigratedAsync(PostgresFixture postgres, string environmentName)
+    {
+        await postgres.EnsureAppRoleAsync();
+        var owner = await postgres.CreateDatabaseAsync();
+
+        return new ApiFactory(PostgresFixture.AsAppRole(owner), adjustSettings: null, anchorFilePath: null, environmentName) { OwnerConnectionString = owner };
+    }
+
     /// <summary>The application with no database behind it, for tests of configuration only. It never connects.</summary>
-    public static ApiFactory WithoutDatabase(Action<Dictionary<string, string?>>? adjustSettings = null, string environmentName = "Testing", bool realLimits = false, TimeSpan? requestTimeout = null, int globalPerIpPerMinute = 100_000) =>
-        new("Host=localhost;Port=1;Database=unused;Username=unused;Password=unused;Timeout=1", adjustSettings) { EnvironmentName = environmentName, RealLimits = realLimits, RequestTimeout = requestTimeout, GlobalPerIpPerMinute = globalPerIpPerMinute };
+    public static ApiFactory WithoutDatabase(Action<Dictionary<string, string?>>? adjustSettings = null, string environmentName = "Testing", bool realLimits = false, TimeSpan? requestTimeout = null, int globalPerIpPerMinute = 100_000, bool realAnchorSink = false) =>
+        new("Host=localhost;Port=1;Database=unused;Username=unused;Password=unused;Timeout=1", adjustSettings, environmentName: environmentName) { RealAnchorSink = realAnchorSink, RealLimits = realLimits, RequestTimeout = requestTimeout, GlobalPerIpPerMinute = globalPerIpPerMinute };
 
     private static string GrantScriptPath => Path.Combine(SolutionGraph.SolutionRoot, "database", "app-role-grants.sql");
 
@@ -196,7 +226,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         }
 
         adjust?.Invoke(settings);
-    }, _anchorFilePath) { EnvironmentName = EnvironmentName };
+    }, _anchorFilePath, EnvironmentName);
 
     /// <summary>
     /// Creates an account. By default it already has two-factor switched on (with a key the test can
@@ -389,6 +419,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public Task<ApplicationUser> GetUserAsync(string email) =>
         WithDbAsync(db => db.Users.AsNoTracking().SingleAsync(user => user.NormalizedEmail == EmailNormaliser.Normalise(email)));
 
+    /// <summary>The clients the factory hands out come through the proxy, as every real request does: they carry the secret when the application has one. A test of the gate itself builds its own client.</summary>
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+
+        if (_settings.GetValueOrDefault("Proxy:Secret") is { Length: > 0 } secret)
+        {
+            client.DefaultRequestHeaders.TryAddWithoutValidation(ProxyHeader, secret);
+        }
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Set explicitly: the metadata WebApplicationFactory generates for the content root breaks
@@ -444,14 +485,18 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             }
 
             // The local file store is for Development only, so it is handed to the test host directly. A blank path means no store.
-            services.RemoveAll<IAuditAnchorSink>();
-            if (string.IsNullOrWhiteSpace(_anchorFilePath))
+            // (A test of which store the application chooses for itself keeps the real registration.)
+            if (!RealAnchorSink)
             {
-                services.AddSingleton<IAuditAnchorSink>(new NoAuditAnchorSink());
-            }
-            else
-            {
-                services.AddSingleton<IAuditAnchorSink>(new FileAuditAnchorSink(_anchorFilePath));
+                services.RemoveAll<IAuditAnchorSink>();
+                if (string.IsNullOrWhiteSpace(_anchorFilePath))
+                {
+                    services.AddSingleton<IAuditAnchorSink>(new NoAuditAnchorSink());
+                }
+                else
+                {
+                    services.AddSingleton<IAuditAnchorSink>(new FileAuditAnchorSink(_anchorFilePath));
+                }
             }
 
             services.AddSingleton(new LogOutputOverride(LogOutput));

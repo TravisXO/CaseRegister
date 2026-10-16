@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
+using CaseRegister.Api.Security;
 using CaseRegister.Infrastructure.Health;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Timeouts;
@@ -60,6 +61,9 @@ public static class HardeningExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddReadinessChecks();
 
+        // Only the proxy may reach the API.
+        services.AddProxyGate();
+
         return builder;
     }
 
@@ -103,6 +107,10 @@ public static class HardeningExtensions
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseExceptionHandler();
         app.UseMiddleware<SecurityHeadersMiddleware>();
+
+        // After the headers and the exception handler, so a refusal carries both. Before everything else: a request that did not come
+        // through the proxy gets nothing, and one that did tells us the visitor's address for the limits and the audit log below.
+        app.UseMiddleware<ProxyGateMiddleware>();
 
         // A health check from the platform arrives over plain HTTP, without the forwarded scheme, and must not be redirected.
         app.UseWhen(context => !context.Request.Path.StartsWithSegments("/health"), branch => branch.UseHttpsRedirection());
