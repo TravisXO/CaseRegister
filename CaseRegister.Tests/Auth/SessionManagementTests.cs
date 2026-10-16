@@ -367,6 +367,27 @@ public class SessionManagementTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task A_sign_in_removes_every_expired_session_whoever_it_belonged_to_and_keeps_the_live_ones()
+    {
+        await using var factory = await ApiFactory.CreateAsync(postgres);
+        var gone = await factory.CreateUserAsync("gone@example.test");
+        var live = await factory.CreateUserAsync("live@example.test");
+        var arriving = await factory.CreateUserAsync("arriving@example.test");
+        await SignInAsync(factory, gone);
+        factory.Clock.Advance(TimeSpan.FromMinutes(20));
+        await SignInAsync(factory, live);
+
+        // Nobody asks for it, so expiring on its own removes nothing: no scheduler runs here.
+        factory.Clock.Advance(TimeSpan.FromMinutes(20)); // the first session is now 40 minutes old, the second 20
+        Assert.Equal(2, await SessionCountAsync(factory));
+
+        await SignInAsync(factory, arriving);
+
+        var remaining = await factory.WithDbAsync(db => db.Sessions.AsNoTracking().Select(session => session.UserId).ToListAsync());
+        Assert.Equal(new[] { live.Id, arriving.Id }.Order(), remaining.Order());
+    }
+
+    [Fact]
     public async Task A_restricted_session_counts_towards_the_limit_too()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);

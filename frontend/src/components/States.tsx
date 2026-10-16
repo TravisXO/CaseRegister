@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { describeError, ApiError } from "../api/client";
 import type { Load } from "../lib/hooks";
+import { DemoNotice } from "./DemoNotice";
 
 export function Loading({ what = "Loading" }: { what?: string }) {
   return (
@@ -76,19 +77,22 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { failed: 
     }
 
     return (
-      <div role="alert" className="page">
-        <h1 className="heading">Something went wrong</h1>
-        <p>This page could not be shown. Reload it, and if it happens again tell an admin what you were doing.</p>
-        <button
-          type="button"
-          className="btn-primary mt-4"
-          onClick={() => {
-            window.location.reload();
-          }}
-        >
-          Reload
-        </button>
-      </div>
+      <>
+        <DemoNotice />
+        <div role="alert" className="page">
+          <h1 className="heading">Something went wrong</h1>
+          <p>This page could not be shown. Reload it, and if it happens again tell an admin what you were doing.</p>
+          <button
+            type="button"
+            className="btn-primary mt-4"
+            onClick={() => {
+              window.location.reload();
+            }}
+          >
+            Reload
+          </button>
+        </div>
+      </>
     );
   }
 }
