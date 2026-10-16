@@ -58,4 +58,16 @@ Few on purpose. The runtime ones are `react`, `react-dom`, `react-router-dom` an
 
 ## Production
 
-Cloudflare Pages serves `dist/`, applies `public/_headers` and `public/_redirects`, and a Pages Function proxies `/api/*` to the API. The Turnstile site key is set when the site is built (`VITE_TURNSTILE_SITE_KEY`). Without one, the sign-in and sign-up forms say the security check is not set up and cannot be used.
+Cloudflare Pages serves `dist/`, applies `public/_headers` and `public/_redirects`, and a Pages Function proxies `/api/*` to the API. The Turnstile site key is set when the site is built (`VITE_TURNSTILE_SITE_KEY`). Without one, the sign-in and sign-up forms say the security check is not set up and cannot be used. `docs/deployment.md` is the runbook.
+
+| File | What it does |
+| --- | --- |
+| `functions/api/[[path]].ts` | The Pages Function. Sends `/api/*` to the API with the shared secret, passes cookies and `Set-Cookie` through untouched, forwards only a short list of headers (so a visitor's own forwarding headers or copy of the secret never get through), tells the API the visitor's address from `CF-Connecting-IP`, caps the body at 64 KiB, times out after 75 seconds, answers only on `PRODUCTION_HOSTNAME`, and never logs anything. Tested in `functions/api/proxy.test.ts`. |
+| `public/_headers` | The strict policy (Turnstile is the only outside origin), HSTS, nosniff, referrer and permissions policies, noindex, a year's caching for hashed files under `/assets/` and none for the page. These apply to pages and files; the Function's responses carry the API's own headers. |
+| `public/_routes.json` | Only `/api/*` runs the Function, so pages and files cost no Function requests. |
+| `public/_redirects` | Every other address is answered with the app, so a reload of `/profile` works. |
+| `public/robots.txt`, the meta tag in `index.html` | With the `X-Robots-Tag` header, keep the demo out of search engines. |
+
+The Function reads `API_ORIGIN`, `PROXY_SECRET`, `PRODUCTION_HOSTNAME` and (optionally) `UPSTREAM_TIMEOUT_MS` from the Pages **production** environment only. `npm run check:build` fails a build whose `dist` lacks any of the files above, lacks the noindex tag, or names the proxy secret.
+
+Every page carries a "Demo: all data is fake" notice (`src/components/DemoNotice.tsx`), including the page shown when something breaks.

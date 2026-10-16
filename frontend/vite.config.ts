@@ -22,12 +22,20 @@ function localHttps(): ServerOptions["https"] {
   return { cert: readFileSync(certificate), key: readFileSync(key) };
 }
 
-/** The security headers in public/_headers, so "npm run preview" serves the production build under the production policy. */
+/**
+ * The headers every page gets in public/_headers (its first block, "/*"), so "npm run preview" serves the production build under the
+ * production policy. Not Strict-Transport-Security: a browser that saw it from localhost could refuse plain http on localhost afterwards.
+ */
 function productionHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
+  let blocks = 0;
   for (const line of readFileSync(resolve("public/_headers"), "utf8").split("\n")) {
-    const match = /^\s+([A-Za-z-]+):\s*(.+?)\s*$/.exec(line);
-    if (match?.[1] && match[2]) {
+    if (line.startsWith("/")) {
+      blocks += 1;
+    }
+
+    const match = blocks === 1 ? /^\s+([A-Za-z-]+):\s*(.+?)\s*$/.exec(line) : null;
+    if (match?.[1] && match[2] && match[1] !== "Strict-Transport-Security") {
       headers[match[1]] = match[2];
     }
   }
