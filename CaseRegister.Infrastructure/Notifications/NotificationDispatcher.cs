@@ -85,6 +85,18 @@ internal sealed partial class NotificationDispatcher(INotificationService notifi
             await notifications.NotifyAsync(items, cancellationToken);
         });
 
+    /// <summary>A break-glass command was run: every admin who receives security alerts is told, and so is the person it was run on. All critical.</summary>
+    public Task BreakGlassAsync(Guid targetUserId, string command, CancellationToken cancellationToken = default) =>
+        SafeAsync(async () =>
+        {
+            var admins = await recipients.WithCapabilityAsync(Capability.ReceiveSecurityAlerts, [targetUserId], cancellationToken);
+            var eventId = Guid.CreateVersion7();
+
+            List<NewNotification> items = [NotificationFactory.BreakGlassForTarget(targetUserId, eventId, command)];
+            items.AddRange(admins.Select(admin => NotificationFactory.BreakGlassForAdmin(admin, eventId, command)));
+            await notifications.NotifyAsync(items, cancellationToken);
+        });
+
     /// <summary>Admins who should hear about a security event (a lockout, a break-glass action), as the permission matrix says.</summary>
     public Task<IReadOnlyList<Guid>> SecurityAlertRecipientsAsync(CancellationToken cancellationToken = default) =>
         recipients.WithCapabilityAsync(Capability.ReceiveSecurityAlerts, [], cancellationToken);

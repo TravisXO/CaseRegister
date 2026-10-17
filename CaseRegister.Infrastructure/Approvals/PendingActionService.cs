@@ -35,7 +35,7 @@ internal sealed partial class PendingActionService(
 
     private sealed record Actor(Guid Id, Guid? AgencyId);
 
-    private sealed record Attempt(ConfirmOutcome Outcome, IReadOnlyList<ApprovalViolation>? Problems = null, bool Repeat = false, string? SetupToken = null, IReadOnlyList<NotificationIntent>? Intents = null);
+    private sealed record Attempt(ConfirmOutcome Outcome, IReadOnlyList<ApprovalViolation>? Problems = null, bool Repeat = false, string? SetupToken = null, IReadOnlyList<NotificationIntent>? Intents = null, string? EnrolmentCode = null);
 
     // --- Proposing ---------------------------------------------------------------------------------
 
@@ -245,7 +245,8 @@ internal sealed partial class PendingActionService(
                 ConfirmOutcome.Confirmed,
                 await ViewAsync(id, cancellationToken),
                 WasRepeat: attempt.Repeat,
-                SetupLink: attempt.SetupToken is { } setupToken ? invites.Value.LinkFor(setupToken) : null),
+                SetupLink: attempt.SetupToken is { } setupToken ? invites.Value.LinkFor(setupToken) : null,
+                EnrolmentCode: attempt.EnrolmentCode),
             ConfirmOutcome.Refused => await RecordRefusalAsync(id, confirmer.Id, attempt.Problems!, remoteIpAddress, cancellationToken),
             ConfirmOutcome.Expired or ConfirmOutcome.NotAllowed or ConfirmOutcome.NotPending =>
                 await RefusedForPeopleAsync(action, attempt.Problems ?? [], cancellationToken, attempt.Outcome),
@@ -339,7 +340,7 @@ internal sealed partial class PendingActionService(
                     cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
-                result = new Attempt(ConfirmOutcome.Confirmed, SetupToken: output.SetupToken, Intents: [.. output.Intents]);
+                result = new Attempt(ConfirmOutcome.Confirmed, SetupToken: output.SetupToken, Intents: [.. output.Intents], EnrolmentCode: output.EnrolmentCode);
             });
         }
         catch (DbUpdateConcurrencyException)

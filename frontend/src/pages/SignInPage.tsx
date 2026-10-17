@@ -36,6 +36,9 @@ export function SignInPage() {
         // Signed in, but with no authenticator yet: the only way on is to set one up.
         await refresh();
         void navigate("/two-factor/set-up", { replace: true });
+      } else if (result.status === "enrolment-code-required") {
+        // An admin reset the two-factor of this account: the one-time code they were given comes before setting it up again.
+        void navigate("/sign-in/enrolment-code", { replace: true });
       } else {
         void navigate("/sign-in/code", { replace: true });
       }

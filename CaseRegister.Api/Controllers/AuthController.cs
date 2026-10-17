@@ -62,6 +62,7 @@ public sealed class AuthController(
         {
             SignInStatus.TwoFactorRequired => Ok(new StatusResponse("two-factor-required")),
             SignInStatus.TwoFactorEnrolmentRequired => Ok(new StatusResponse("two-factor-enrolment-required")),
+            SignInStatus.EnrolmentCodeRequired => Ok(new StatusResponse("enrolment-code-required")),
             _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign-in failed", detail: SignInFailedDetail),
         };
     }
@@ -80,6 +81,22 @@ public sealed class AuthController(
             TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
             TwoFactorOutcome.AuthenticatorLocked => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: AuthenticatorLockedDetail),
             _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: VerificationFailedDetail),
+        };
+    }
+
+    /// <summary>After a reset: the one-time code an admin handed over. Only works right after step one, and only once.</summary>
+    [HttpPost("2fa/enrolment-code")]
+    [AllowAnonymous]
+    [ProducesResponseType<StatusResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> RedeemEnrolmentCode(TwoFactorCodeCommand command, CancellationToken cancellationToken)
+    {
+        var result = await twoFactor.RedeemEnrolmentCodeAsync(command.Code, RemoteIp(), cancellationToken);
+
+        return result.Outcome switch
+        {
+            TwoFactorOutcome.Succeeded => Ok(new StatusResponse("two-factor-enrolment-required")),
+            TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
+            _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: "That code was not accepted. Check it, or ask an admin for a new one."),
         };
     }
 

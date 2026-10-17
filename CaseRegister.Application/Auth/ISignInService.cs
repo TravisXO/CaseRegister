@@ -14,6 +14,9 @@ public enum SignInStatus
 
     /// <summary>The password was right but two-factor is not set up yet. The session can reach enrolment and nothing else.</summary>
     TwoFactorEnrolmentRequired,
+
+    /// <summary>The password was right, but an admin reset this account's two-factor: the one-time enrolment code is needed before the person can set it up again.</summary>
+    EnrolmentCodeRequired,
 }
 
 public interface ISignInService

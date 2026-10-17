@@ -48,6 +48,7 @@ public sealed record ProposalRefusal(string? Code, string? Message, DateTimeOffs
 /// <param name="Payload">What the proposal would do, in the form it was hashed in.</param>
 /// <param name="PayloadHash">The hash a confirmer sends back, so they approve exactly what they were shown.</param>
 /// <param name="SetupLink">Only in the answer to confirming a staff invite, once, and nowhere else.</param>
+/// <param name="EnrolmentCode">Only in the answer to confirming a reset of somebody's two-factor, once, and nowhere else.</param>
 public sealed record PendingActionResponse(
     Guid Id,
     PendingActionType Type,
@@ -64,7 +65,8 @@ public sealed record PendingActionResponse(
     DateTimeOffset? DecidedAt,
     string? DecisionReason,
     ProposalRefusal? LastRefusal,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SetupLink = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SetupLink = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EnrolmentCode = null);
 
 public sealed record AuditEntryResponse(
     long Sequence,

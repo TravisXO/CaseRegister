@@ -22,6 +22,7 @@ export const api = {
   signUp: (body: Schemas["SignUpCommand"]) => request<Schemas["MessageResponse"]>("POST", "/api/auth/sign-up", { body, ...credentialsCall }),
   signIn: (body: Schemas["SignInCommand"]) => request<Schemas["StatusResponse"]>("POST", "/api/auth/sign-in", { body, ...credentialsCall }),
   verifyTwoFactor: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/verify", { body: { code }, ...credentialsCall }),
+  redeemEnrolmentCode: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/enrolment-code", { body: { code }, ...credentialsCall }),
   signOut: () => request<undefined>("POST", "/api/auth/sign-out", { unauthorised: "report" }),
   session: () => request<SessionResponse>("GET", "/api/auth/session", { unauthorised: "report" }),
   startEnrolment: () => request<Schemas["EnrolmentResponse"]>("POST", "/api/auth/2fa/enrol"),

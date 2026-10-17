@@ -6,6 +6,7 @@ using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Identity;
+using CaseRegister.Infrastructure.Persistence;
 using CaseRegister.Tests.Database;
 using CaseRegister.Tests.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -128,9 +129,7 @@ public class AdminActionTests(PostgresFixture postgres)
         Assert.Equal(AdminActionOutcome.Done, (await world.Factory.SuspendUserAsync(world.A, world.Member)).Outcome);
         await world.Factory.WithDbAsync(async db =>
         {
-            var user = await db.Users.SingleAsync(u => u.Id == world.Member.Id);
-            user.LockoutEnd = DateTimeOffset.UtcNow.AddHours(5);
-            user.AccessFailedCount = 4;
+            db.SignInLockouts.Add(new SignInLockout(world.Member.Id, null, 2, world.Factory.Clock.GetUtcNow().AddHours(5)));
             await db.SaveChangesAsync();
 
             return 0;
@@ -144,8 +143,7 @@ public class AdminActionTests(PostgresFixture postgres)
 
         var reactivated = await world.Fresh(world.Member);
         Assert.Equal(AccountStatus.Approved, reactivated.AccountStatus);
-        Assert.Null(reactivated.LockoutEnd);
-        Assert.Equal(0, reactivated.AccessFailedCount);
+        Assert.Equal(0, await world.Factory.WithDbAsync(db => db.SignInLockouts.CountAsync(l => l.UserId == world.Member.Id && l.ClearedAt == null)));
         await world.SignInAsync(world.Member); // and they can sign in again (with their two-factor, as ever)
         Assert.Equal(1, await world.AuditCount("UserReactivated"));
     }
@@ -248,7 +246,7 @@ public class AdminActionTests(PostgresFixture postgres)
 
         var proposal = await world.Factory.ProposeOkAsync(world.A, Proposals.ForUser(PendingActionType.ResetTwoFactor, person));
         Assert.Equal(1, await world.Factory.WithDbAsync(db => db.Authenticators.CountAsync(a => a.UserId == person.Id))); // not yet
-        await world.Factory.ConfirmOkAsync(world.B, proposal);
+        var confirmed = await world.Factory.ConfirmWithLinkAsync(world.B, proposal);
 
         // The authenticator and the codes are gone as far as the application is concerned, but kept as history.
         Assert.Equal(0, await world.Factory.WithDbAsync(db => db.Authenticators.CountAsync(a => a.UserId == person.Id)));
@@ -260,8 +258,10 @@ public class AdminActionTests(PostgresFixture postgres)
         Assert.Equal(0, await world.SessionCount(person));
         Assert.Equal(HttpStatusCode.Unauthorized, await World.ProfileStatusAsync(client));
 
-        // At the next sign-in the password alone gives only a session that can enrol, and nothing else.
-        var restricted = await TwoFactorFlows.RestrictedSessionAsync(world.Factory, person);
+        // At the next sign-in the password alone gets nowhere: it leads to the one-time code, and the code to a session that can enrol and nothing else.
+        var restricted = world.Factory.CreateApiClient();
+        Assert.Equal("enrolment-code-required", await TwoFactorFlows.StatusAsync(await restricted.SignInAsync(person.Email!)));
+        Assert.Equal(HttpStatusCode.OK, (await restricted.SendAsync(HttpMethod.Post, "/api/auth/2fa/enrolment-code", new { code = confirmed.EnrolmentCode })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, await World.ProfileStatusAsync(restricted));
 
         // They enrol again with a new key, and are back to normal.

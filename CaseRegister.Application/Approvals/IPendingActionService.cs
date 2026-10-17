@@ -110,7 +110,8 @@ public sealed record ConfirmResult(
     IReadOnlyList<ApprovalViolation>? Problems = null,
     TimeSpan? RetryAfter = null,
     bool WasRepeat = false,
-    string? SetupLink = null);
+    string? SetupLink = null,
+    string? EnrolmentCode = null);
 
 public enum DecisionOutcome
 {

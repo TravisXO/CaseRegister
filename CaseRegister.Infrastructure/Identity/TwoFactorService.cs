@@ -45,6 +45,12 @@ internal sealed class TwoFactorService(
             return null; // already on: changing it needs the admin process, not a new key from a session
         }
 
+        // After a reset, enrolling needs the one-time code first: a session that has not been through it gets nothing.
+        if (await db.EnrolmentCodes.AnyAsync(code => code.UserId == userId && code.CompletedAt == null && code.RevokedAt == null && code.UsedAt == null, cancellationToken))
+        {
+            return null;
+        }
+
         // 160 random bits, as RFC 4226 recommends. Starting again replaces a key that was never confirmed.
         var key = RandomNumberGenerator.GetBytes(Totp.KeyBytes);
         var encrypted = keyProtector.Protect(key);
@@ -93,6 +99,15 @@ internal sealed class TwoFactorService(
 
         user.TwoFactorEnabled = true;
         await users.UpdateAsync(user);
+
+        // Enrolled: the reset is finished, so a plain password sign-in leads to the authenticator's code from now on.
+        var finishing = await db.EnrolmentCodes.Where(r => r.UserId == userId && r.CompletedAt == null && r.RevokedAt == null).ToListAsync(cancellationToken);
+        foreach (var finished in finishing)
+        {
+            finished.CompletedAt = timeProvider.GetUtcNow();
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
 
         var codes = await CreateRecoveryCodesAsync(userId, cancellationToken);
         await audit.WriteAsync(new AuditEntry(AuditAction.TwoFactorEnrolled, userId, IpAddress: remoteIpAddress), cancellationToken);
@@ -157,6 +172,73 @@ internal sealed class TwoFactorService(
         // Fully signed in: the counters start again, and the notifications that depend on the date are made now (there is no scheduler).
         await throttle.RecordFullSignInAsync(userId, remoteIpAddress, cancellationToken);
         await notifications.EnsureTimeBasedAsync(userId, cancellationToken);
+
+        return new TwoFactorResult(TwoFactorOutcome.Succeeded);
+    }
+
+    public async Task<TwoFactorResult> RedeemEnrolmentCodeAsync(string code, string? remoteIpAddress, CancellationToken cancellationToken = default)
+    {
+        var context = signInManager.Context;
+
+        var step = await context.AuthenticateAsync(IdentityConstants.TwoFactorUserIdScheme);
+        var userIdText = step.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!step.Succeeded || !Guid.TryParse(userIdText, out var userId))
+        {
+            return new TwoFactorResult(TwoFactorOutcome.Failed);
+        }
+
+        var user = await users.FindByIdAsync(userId.ToString());
+        if (user is null || !await signInManager.CanSignInAsync(user) || await throttle.LockedUntilAsync(userId, remoteIpAddress, cancellationToken) is not null)
+        {
+            await context.SignOutAsync(IdentityConstants.TwoFactorUserIdScheme);
+            return new TwoFactorResult(TwoFactorOutcome.Failed);
+        }
+
+        if (!limiter.TryAcquire(userId, out var retryAfter))
+        {
+            return new TwoFactorResult(TwoFactorOutcome.RateLimited, retryAfter);
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var hash = EnrolmentCodes.Hash(code);
+        var record = EnrolmentCodes.LooksLikeEnrolmentCode(code)
+            ? await db.EnrolmentCodes.SingleOrDefaultAsync(r => r.UserId == userId && r.CodeHash == hash && r.CompletedAt == null && r.RevokedAt == null, cancellationToken)
+            : null;
+
+        var accepted = false;
+        if (record is { UsedAt: null } && record.ExpiresAt > now)
+        {
+            record.UsedAt = now;
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                accepted = true;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                db.Entry(record).State = EntityState.Detached; // used at the same moment by someone else
+            }
+        }
+
+        if (!accepted)
+        {
+            await audit.WriteStandaloneAsync(
+                new AuditEntry(AuditAction.TwoFactorFailed, userId, IpAddress: remoteIpAddress, Detail: "invalid enrolment code"),
+                logger, cancellationToken);
+
+            return new TwoFactorResult(TwoFactorOutcome.Failed);
+        }
+
+        await context.SignOutAsync(IdentityConstants.TwoFactorUserIdScheme);
+
+        // The code proves the person was given it; the session it opens can reach enrolment and nothing else.
+        await signInManager.SignInWithClaimsAsync(
+            user,
+            new AuthenticationProperties { IsPersistent = false },
+            [new Claim(AuthenticationClaims.Amr, AuthenticationClaims.AmrPassword)]);
+
+        await audit.WriteAsync(new AuditEntry(AuditAction.EnrolmentCodeUsed, userId, Subject: userId.ToString(), IpAddress: remoteIpAddress, TargetType: "User"), cancellationToken);
 
         return new TwoFactorResult(TwoFactorOutcome.Succeeded);
     }

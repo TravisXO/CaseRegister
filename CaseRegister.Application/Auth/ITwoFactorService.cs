@@ -49,6 +49,12 @@ public interface ITwoFactorService
     /// </summary>
     Task<TwoFactorResult> VerifyCodeAsync(Guid userId, string code, string? remoteIpAddress, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// After a reset: checks the one-time enrolment code for somebody who has passed the password step, and opens the restricted session
+    /// that can reach enrolment. The code works once.
+    /// </summary>
+    Task<TwoFactorResult> RedeemEnrolmentCodeAsync(string code, string? remoteIpAddress, CancellationToken cancellationToken = default);
+
     /// <summary>Replaces all recovery codes. Needs a valid authenticator code.</summary>
     Task<TwoFactorResult> RegenerateRecoveryCodesAsync(Guid userId, string code, string? remoteIpAddress, CancellationToken cancellationToken = default);
 }

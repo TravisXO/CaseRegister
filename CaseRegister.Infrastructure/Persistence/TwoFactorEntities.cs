@@ -59,6 +59,44 @@ public sealed class RecoveryCodeRecord : Entity
 }
 
 /// <summary>
+/// The one-time code made when an admin's reset (or the command line) removes a person's two-factor. Only its hash is stored. The person
+/// needs it, with their password, before they can set two-factor up again. It works once (<see cref="UsedAt"/>) within 72 hours, and
+/// until the person has finished enrolling (<see cref="CompletedAt"/>) they cannot sign in without a new reset: a half-finished
+/// enrolment must not leave the account open to anyone who has the password.
+/// </summary>
+public sealed class EnrolmentCodeRecord : Entity
+{
+    public EnrolmentCodeRecord()
+    {
+    }
+
+    public EnrolmentCodeRecord(Guid userId, string codeHash, DateTimeOffset expiresAt)
+    {
+        UserId = userId;
+        CodeHash = codeHash;
+        ExpiresAt = expiresAt;
+    }
+
+    public Guid UserId { get; private set; }
+
+    public string CodeHash { get; private set; } = string.Empty;
+
+    public DateTimeOffset ExpiresAt { get; private set; }
+
+    /// <summary>When the code was typed in. It cannot be used again.</summary>
+    public DateTimeOffset? UsedAt { get; set; }
+
+    /// <summary>When the person finished setting two-factor up. Until then the account has to go through the code.</summary>
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>Set when a newer code replaced this one.</summary>
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    /// <summary>Still standing in the way of a plain password sign-in: not finished and not replaced.</summary>
+    public bool IsOutstanding => CompletedAt is null && RevokedAt is null;
+}
+
+/// <summary>
 /// A sign-in session kept on the server. The browser's cookie holds only a session id; everything
 /// else lives here, so a session can be ended at once by removing its row.
 /// </summary>

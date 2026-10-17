@@ -8,6 +8,7 @@ import { ApplicationsPage } from "./pages/admin/ApplicationsPage";
 import { AuditPage } from "./pages/admin/AuditPage";
 import { InviteStaffPage } from "./pages/admin/InviteStaffPage";
 import { ProposalPage, ProposalsPage } from "./pages/admin/ProposalsPage";
+import { EnrolmentCodePage } from "./pages/EnrolmentCodePage";
 import { EnrolPage } from "./pages/EnrolPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
@@ -50,6 +51,7 @@ export const routes: RouteObject[] = [
           { index: true, element: <Home /> },
           { path: "sign-in", element: <SignInPage /> },
           { path: "sign-in/code", element: <TwoFactorCodePage /> },
+          { path: "sign-in/enrolment-code", element: <EnrolmentCodePage /> },
           { path: "sign-up", element: <SignUpPage /> },
           { path: "staff/setup", element: <StaffSetupPage /> },
           { path: "two-factor/set-up", element: <EnrolPage /> },

@@ -29,6 +29,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<RecoveryCodeRecord> RecoveryCodes => Set<RecoveryCodeRecord>();
 
+    public DbSet<EnrolmentCodeRecord> EnrolmentCodes => Set<EnrolmentCodeRecord>();
+
     public DbSet<UserSession> Sessions => Set<UserSession>();
 
     public DbSet<Agency> Agencies => Set<Agency>();

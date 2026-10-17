@@ -66,7 +66,7 @@ public static class ActionPayloads
             PendingActionType.VerifyPractisingCertificate => $"Verify a practising certificate of {who}",
             PendingActionType.ReactivateUser => $"Reactivate the suspended account of {who}",
             PendingActionType.ReactivateAgency => $"Reactivate the suspended agency {who}",
-            PendingActionType.ResetTwoFactor => $"Reset two-factor for {who}: remove the authenticator and recovery codes, and end all sessions",
+            PendingActionType.ResetTwoFactor => $"Reset two-factor for {who}: remove the authenticator and recovery codes, end all sessions, and make a one-time code they need to set it up again",
             PendingActionType.SuspendUser => $"Suspend the account of {who} and end all sessions",
             PendingActionType.EndSessions => $"End all sessions of {who}",
             PendingActionType.SuspendAgency => $"Suspend the agency {who}",
@@ -118,6 +118,10 @@ public sealed class ProposeActionCommandValidator : AbstractValidator<ProposeAct
         RuleFor(command => command.Type).IsInEnum();
         RuleFor(command => command.Reason).Must(reason => ApprovalRules.CheckReason(reason) is null)
             .WithMessage($"Give a reason of {ApprovalRules.MinimumReasonLength} to {ApprovalRules.MaximumReasonLength} characters.");
+
+        RuleFor(command => command.Reason).Must(reason => ApprovalRules.CheckIdentityReason(reason) is null)
+            .When(command => ApprovalRules.NeedsIdentityCheckReason(command.Type))
+            .WithMessage($"Say how you checked the person's identity, in at least {ApprovalRules.MinimumIdentityReasonLength} characters.");
 
         // What a type needs, and nothing else: an extra parameter would be something the confirmer is not shown.
         RuleFor(command => command).Must(UsesExactlyTheParametersItNeeds)

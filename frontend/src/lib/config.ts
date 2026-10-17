@@ -9,3 +9,6 @@ export const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/
 
 export const REASON_MIN = 10;
 export const REASON_MAX = 500;
+
+/** A reset of somebody's two-factor has to say how their identity was checked. */
+export const IDENTITY_REASON_MIN = 30;

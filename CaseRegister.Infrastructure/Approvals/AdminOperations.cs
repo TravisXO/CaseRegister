@@ -1,6 +1,7 @@
 using CaseRegister.Application.Accounts;
 using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Auditing;
+using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
 using CaseRegister.Domain.Approvals;
@@ -16,6 +17,9 @@ namespace CaseRegister.Infrastructure.Approvals;
 internal sealed class OperationOutput
 {
     public string? SetupToken { get; set; }
+
+    /// <summary>The one-time code a reset of somebody's two-factor made. Shown once to the admin who confirms, never stored in the clear.</summary>
+    public string? EnrolmentCode { get; set; }
 
     /// <summary>What somebody should be told, recorded while the operation runs and turned into notifications only after the commit.</summary>
     public List<NotificationIntent> Intents { get; } = [];
@@ -216,7 +220,7 @@ internal sealed class SuspendUserOperation(UserManager<ApplicationUser> users, A
 }
 
 /// <summary>Brings a suspended account back, with its lockout cleared. It still has to sign in with two-factor.</summary>
-internal sealed class ReactivateUserOperation(UserManager<ApplicationUser> users) : IAdminOperation
+internal sealed class ReactivateUserOperation(UserManager<ApplicationUser> users, AppDbContext db, TimeProvider time) : IAdminOperation
 {
     public PendingActionType Type => PendingActionType.ReactivateUser;
 
@@ -239,12 +243,17 @@ internal sealed class ReactivateUserOperation(UserManager<ApplicationUser> users
             "status: Approved; lockout cleared",
             AuditAction.UserReactivated,
             user.Id.ToString(),
-            async _ =>
+            async token =>
             {
                 user.AccountStatus = AccountStatus.Approved;
                 SessionEnding.Ensure(await users.UpdateAsync(user));
-                SessionEnding.Ensure(await users.SetLockoutEndDateAsync(user, null));
-                SessionEnding.Ensure(await users.ResetAccessFailedCountAsync(user));
+
+                // Any lockout left over from before is cleared too (kept as history, marked cleared).
+                var now = time.GetUtcNow();
+                await db.SignInLockouts.Where(lockout => lockout.UserId == user.Id && lockout.ClearedAt == null)
+                    .ExecuteUpdateAsync(set => set.SetProperty(lockout => lockout.ClearedAt, now).SetProperty(lockout => lockout.UpdatedAt, now), token);
+                await db.SignInFailures.Where(failure => failure.UserId == user.Id && failure.ClearedAt == null)
+                    .ExecuteUpdateAsync(set => set.SetProperty(failure => failure.ClearedAt, now).SetProperty(failure => failure.UpdatedAt, now), token);
             });
     }
 }
@@ -280,8 +289,8 @@ internal sealed class EndSessionsOperation(UserManager<ApplicationUser> users, A
 }
 
 /// <summary>
-/// Removes a person's authenticator and recovery codes, ends their sessions, and so makes them enrol again at
-/// their next sign-in. The old records are kept, marked removed: nothing is deleted.
+/// Removes a person's authenticator and recovery codes, ends their sessions (and rotates their security stamp), and makes a one-time
+/// enrolment code that, with their password, lets them enrol again. The old records are kept, marked removed: nothing is deleted.
 /// </summary>
 internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users, AppDbContext db, TimeProvider time) : IAdminOperation
 {
@@ -301,7 +310,8 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
         }
 
         var authenticator = await db.Authenticators.SingleOrDefaultAsync(record => record.UserId == user.Id, cancellationToken);
-        if (authenticator is null)
+        var waitingForEnrolment = await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null, cancellationToken);
+        if (authenticator is null && !waitingForEnrolment)
         {
             return OperationPlan.Refuse("NothingToReset", "The account has no two-factor set up, so there is nothing to reset.");
         }
@@ -310,14 +320,14 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
 
         return new OperationPlan(
             [],
-            $"two-factor: {(authenticator.EnabledAt is null ? "being set up" : "on")}; unused recovery codes: {unusedCodes}",
-            "two-factor: removed, enrolment required at next sign-in; recovery codes revoked; all sessions ended",
+            $"two-factor: {(authenticator is null ? "removed, waiting for a new set-up" : authenticator.EnabledAt is null ? "being set up" : "on")}; unused recovery codes: {unusedCodes}",
+            "two-factor: removed; recovery codes revoked; all sessions ended; one-time enrolment code made (72 hours, single use)",
             AuditAction.TwoFactorReset,
             user.Id.ToString(),
             async token =>
             {
                 var now = time.GetUtcNow();
-                authenticator.RemovedAt = now;
+                authenticator?.RemovedAt = now;
 
                 var codes = await db.RecoveryCodes
                     .Where(code => code.UserId == user.Id && code.UsedAt == null && code.RevokedAt == null)
@@ -330,6 +340,19 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
                 user.TwoFactorEnabled = false;
                 SessionEnding.Ensure(await users.UpdateAsync(user));
                 await SessionEnding.EndAllAsync(users, db, user, token);
+
+                // A newer code replaces any that was never used or finished. Only the hash is kept.
+                var older = await db.EnrolmentCodes.Where(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null).ToListAsync(token);
+                foreach (var code in older)
+                {
+                    code.RevokedAt = now;
+                }
+
+                var enrolmentCode = EnrolmentCodes.Generate();
+                db.EnrolmentCodes.Add(new EnrolmentCodeRecord(user.Id, EnrolmentCodes.Hash(enrolmentCode), now + EnrolmentCodes.Lifetime));
+                await db.SaveChangesAsync(token);
+
+                context.Output.EnrolmentCode = enrolmentCode;
                 context.Output.Intents.Add(new TwoFactorResetIntent(context.EventId, user.Id));
             });
     }

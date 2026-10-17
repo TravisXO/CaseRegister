@@ -69,6 +69,18 @@ internal sealed class SignInService(
             return SignInStatus.TwoFactorRequired;
         }
 
+        // After a reset the one-time enrolment code comes first. The same short-lived step cookie remembers who passed the password.
+        if (await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null, cancellationToken))
+        {
+            var codeStep = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())],
+                IdentityConstants.TwoFactorUserIdScheme));
+
+            await context.SignInAsync(IdentityConstants.TwoFactorUserIdScheme, codeStep, new AuthenticationProperties { IsPersistent = false });
+
+            return SignInStatus.EnrolmentCodeRequired;
+        }
+
         // Two-factor is mandatory but not set up yet: a restricted session ("pwd" only), which the
         // authorisation policies allow to reach enrolment and nothing else.
         await signInManager.SignInWithClaimsAsync(

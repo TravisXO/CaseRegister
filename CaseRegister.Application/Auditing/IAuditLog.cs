@@ -56,6 +56,9 @@ public enum AuditAction
 
     // Hardening: notifications, lockout, recovery and break-glass.
     NotificationAcknowledged,
+    EnrolmentCodeUsed,
+    BreakGlassUsed,
+    BreakGlassRefused,
 }
 
 /// <param name="Action">What happened.</param>

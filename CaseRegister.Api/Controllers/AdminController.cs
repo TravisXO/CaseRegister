@@ -169,8 +169,8 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     private static bool IsSelf(IReadOnlyList<ApprovalViolation>? problems) =>
         problems?.Any(problem => problem.Code == ApprovalRules.SelfTarget) == true;
 
-    /// <summary>The confirmation as shown to the confirming admin. A staff invite's setup link is in it once, here and nowhere else.</summary>
-    private static PendingActionResponse ShapeWithLink(ConfirmResult result) => Shape(result.Action!) with { SetupLink = result.SetupLink };
+    /// <summary>The confirmation as shown to the confirming admin. A staff invite's setup link, or the enrolment code of a two-factor reset, is in it once, here and nowhere else.</summary>
+    private static PendingActionResponse ShapeWithLink(ConfirmResult result) => Shape(result.Action!) with { SetupLink = result.SetupLink, EnrolmentCode = result.EnrolmentCode };
 
     private static PendingActionResponse Shape(PendingActionView view) => new(
         view.Id,
