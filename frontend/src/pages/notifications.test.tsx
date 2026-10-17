@@ -223,7 +223,7 @@ describe("the notifications page", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Mark all as read" }));
 
     expect(await screen.findByRole("link", { name: "Notifications, 1 unread" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mark all as read" })).not.toBeInTheDocument();
   });
 
