@@ -4,6 +4,7 @@ import type {
   AuditPage,
   AuditVerification,
   CertificateInfo,
+  NotificationList,
   PendingAction,
   Profile,
   ProposeActionCommand,
@@ -37,6 +38,12 @@ export const api = {
   changePassword: (body: Schemas["ChangePasswordCommand"]) => request<undefined>("POST", "/api/auth/change-password", { body }),
   sessions: () => request<SessionInfo[]>("GET", "/api/auth/sessions"),
   endSession: (id: string) => request<undefined>("DELETE", `/api/auth/sessions/${encodeURIComponent(id)}`),
+
+  // --- Notifications: asked for when the person moves to a page or acts, never on a timer ---
+  notifications: (limit: number, unreadOnly: boolean) => request<NotificationList>("GET", `/api/notifications?limit=${limit}&unreadOnly=${unreadOnly}`),
+  markNotificationRead: (id: string) => request<undefined>("POST", `/api/notifications/${encodeURIComponent(id)}/read`),
+  markAllNotificationsRead: () => request<undefined>("POST", "/api/notifications/read-all"),
+  acknowledgeNotification: (id: string) => request<undefined>("POST", `/api/notifications/${encodeURIComponent(id)}/acknowledge`),
 
   // --- Admin ---
   applications: () => request<ApplicationView[]>("GET", "/api/admin/applications"),

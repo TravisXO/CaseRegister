@@ -10,6 +10,8 @@ import { InviteStaffPage } from "./pages/admin/InviteStaffPage";
 import { ProposalPage, ProposalsPage } from "./pages/admin/ProposalsPage";
 import { EnrolPage } from "./pages/EnrolPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
+import { NotificationsProvider } from "./notifications/notifications";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SignInPage } from "./pages/SignInPage";
@@ -30,7 +32,9 @@ function Root() {
   return (
     <ErrorBoundary>
       <SessionProvider>
-        <Outlet />
+        <NotificationsProvider>
+          <Outlet />
+        </NotificationsProvider>
       </SessionProvider>
     </ErrorBoundary>
   );
@@ -54,6 +58,7 @@ export const routes: RouteObject[] = [
             children: [
               { path: "profile", element: <ProfilePage /> },
               { path: "sessions", element: <SessionsPage /> },
+              { path: "notifications", element: <NotificationsPage /> },
               {
                 element: <RequireRole roles={["Admin"]} />,
                 children: [

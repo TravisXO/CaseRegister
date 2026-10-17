@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CaseRegister.Domain.Approvals;
+using CaseRegister.Domain.Notifications;
 
 namespace CaseRegister.Api.Contracts;
 
@@ -82,3 +83,9 @@ public sealed record AuditEntryResponse(
     JsonElement? After);
 
 public sealed record AuditPageResponse(IReadOnlyList<AuditEntryResponse> Entries, int Page, int PageSize, long Total);
+
+/// <summary>One notification, as its reader sees it.</summary>
+public sealed record NotificationResponse(Guid Id, NotificationType Type, NotificationSeverity Severity, string Text, string Link, DateTimeOffset CreatedAt, DateTimeOffset? ReadAt, DateTimeOffset? AcknowledgedAt, bool NeedsAcknowledgement);
+
+/// <param name="UnreadCount">How many are still open: unread, or critical and not yet acknowledged. What the bell shows.</param>
+public sealed record NotificationListResponse(int UnreadCount, int NeedsAcknowledgementCount, IReadOnlyList<NotificationResponse> Items);

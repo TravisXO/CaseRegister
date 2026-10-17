@@ -8,6 +8,7 @@ internal sealed class AccountPasswordService(
     UserManager<ApplicationUser> users,
     SignInManager<ApplicationUser> signInManager,
     CredentialChecker credentials,
+    SignInThrottle throttle,
     ITwoFactorService twoFactor,
     IAuditLog audit) : IAccountPasswordService
 {
@@ -21,7 +22,7 @@ internal sealed class AccountPasswordService(
         CancellationToken cancellationToken = default)
     {
         var user = await users.FindByIdAsync(userId.ToString());
-        if (user is null || !await signInManager.CanSignInAsync(user) || await users.IsLockedOutAsync(user))
+        if (user is null || !await signInManager.CanSignInAsync(user) || await throttle.LockedUntilAsync(userId, remoteIpAddress, cancellationToken) is not null)
         {
             await audit.WriteAsync(
                 new AuditEntry(AuditAction.PasswordChangeFailed, userId, IpAddress: remoteIpAddress, Detail: "account not available"),
@@ -29,7 +30,7 @@ internal sealed class AccountPasswordService(
             return ChangePasswordResult.Failure(IncorrectCurrentPassword);
         }
 
-        // Guessing the current password from a stolen session counts towards lockout like any other guess.
+        // Guessing the current password from a stolen session counts towards the lockout like any other guess.
         if (!await credentials.VerifyPasswordAsync(user, command.CurrentPassword, remoteIpAddress, cancellationToken))
         {
             await audit.WriteAsync(

@@ -228,7 +228,7 @@ describe("what is limited, and how to fix it", () => {
     renderApp("/profile");
 
     await screen.findByRole("heading", { name: "My profile" });
-    await waitFor(() => { expect(screen.queryByRole("status")).not.toBeInTheDocument(); });
+    await waitFor(() => { expect(screen.queryByText(/practising certificate/i)).not.toBeInTheDocument(); });
   });
 
   it("says nothing to an agent in good standing", async () => {

@@ -31,6 +31,7 @@ public sealed class AuthController(
 {
     private const string SignInFailedDetail = "Sign-in failed. Check your details and try again.";
     private const string VerificationFailedDetail = "Verification failed. Check the code and try again.";
+    private const string AuthenticatorLockedDetail = "Too many wrong codes. Your authenticator is locked: use one of your recovery codes to sign in.";
 
     /// <summary>Issues an anti-forgery token. Send it back in the X-CSRF-TOKEN header on every POST, PUT, PATCH and DELETE.</summary>
     [HttpGet("csrf")]
@@ -77,6 +78,7 @@ public sealed class AuthController(
         {
             TwoFactorOutcome.Succeeded => Ok(new StatusResponse("signed-in")),
             TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
+            TwoFactorOutcome.AuthenticatorLocked => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: AuthenticatorLockedDetail),
             _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: VerificationFailedDetail),
         };
     }

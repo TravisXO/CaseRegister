@@ -5,7 +5,7 @@ import react from "eslint-plugin-react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import tseslint from "typescript-eslint";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { securityRules } from "../eslint.security.js";
 import { agent, fakeApi, problem, renderApp, signedInAs } from "./test/helpers";
@@ -247,6 +247,7 @@ describe("background calls", () => {
     renderApp("/profile");
     await screen.findByText("Ada Mwansa");
     await screen.findByText("You have not added a certificate yet.");
+    await waitFor(() => { expect(seen).toContain("/api/notifications"); }); // the bell asks once, when the page opens
     const before = seen.length;
 
     vi.useFakeTimers();
@@ -257,7 +258,7 @@ describe("background calls", () => {
     }
 
     expect(seen.length).toBe(before);
-    expect(seen.sort()).toEqual(["/api/auth/session", "/api/me", "/api/me/practising-certificates"]);
+    expect(seen.sort()).toEqual(["/api/auth/session", "/api/me", "/api/me/practising-certificates", "/api/notifications"]);
     server.events.removeAllListeners();
   });
 });

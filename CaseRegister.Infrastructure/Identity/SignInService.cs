@@ -17,6 +17,7 @@ internal sealed class SignInService(
     ITurnstileVerifier turnstile,
     DummyPasswordVerifier dummyVerifier,
     CredentialChecker credentials,
+    SignInThrottle throttle,
     IAuditLog audit,
     Microsoft.Extensions.Logging.ILogger<SignInService> logger) : ISignInService
 {
@@ -37,9 +38,9 @@ internal sealed class SignInService(
             return await FailAsync(command.Password, null, subject, remoteIpAddress, "unknown account", cancellationToken);
         }
 
-        // Not approved, or already locked out: refuse without checking the password, but spend the
-        // same time a check would have taken.
-        if (!await signInManager.CanSignInAsync(user) || await users.IsLockedOutAsync(user))
+        // Not approved, or this address (or the whole account) is locked out: refuse without checking the password, but spend the
+        // same time a check would have taken. A lockout of some other address does not come into it.
+        if (!await signInManager.CanSignInAsync(user) || await throttle.LockedUntilAsync(user.Id, remoteIpAddress, cancellationToken) is not null)
         {
             return await FailAsync(command.Password, user.Id, subject, remoteIpAddress, "account not available", cancellationToken);
         }

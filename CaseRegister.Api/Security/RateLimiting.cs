@@ -34,8 +34,9 @@ public sealed class RateLimitingOptions
 }
 
 /// <summary>
-/// Limits sign-in attempts per account (per email address, whether or not the account exists, so
-/// the limit itself reveals nothing). The per-IP limit is the built-in rate limiter middleware.
+/// Limits sign-in attempts per account and address together (per email address, whether or not the account exists, so the limit itself
+/// reveals nothing). It is per address on purpose: counted for the account alone, anyone could use up an admin's attempts and lock them out
+/// of signing in. The per-address limit across all accounts is the built-in rate limiter middleware.
 /// </summary>
 public sealed class SignInAccountLimiter : IDisposable
 {
@@ -57,9 +58,10 @@ public sealed class SignInAccountLimiter : IDisposable
             }));
     }
 
-    public bool TryAcquire(string email, out TimeSpan retryAfter)
+    public bool TryAcquire(string email, string? address, out TimeSpan retryAfter)
     {
-        using var lease = _limiter.AttemptAcquire(EmailNormaliser.Normalise(email));
+        // The account and the address together: one place using up its attempts at an account must not use up the account's own owner's.
+        using var lease = _limiter.AttemptAcquire($"{EmailNormaliser.Normalise(email)}|{address ?? "unknown"}");
         retryAfter = lease.TryGetMetadata(MetadataName.RetryAfter, out var value) ? value : TimeSpan.FromMinutes(10);
 
         return lease.IsAcquired;
@@ -79,7 +81,7 @@ public sealed class SignInAccountRateLimitFilter(SignInAccountLimiter limiter) :
             return;
         }
 
-        if (!limiter.TryAcquire(command.Email, out var retryAfter))
+        if (!limiter.TryAcquire(command.Email, context.HttpContext.Connection.RemoteIpAddress?.ToString(), out var retryAfter))
         {
             context.Result = TooManyRequests.Result(context.HttpContext, retryAfter);
         }

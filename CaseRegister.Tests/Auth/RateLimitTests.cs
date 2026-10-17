@@ -110,29 +110,29 @@ public class RateLimitTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/probe/ip", forwardedFor: "203.0.113.1")).StatusCode);
     }
 
-    // --- Per account: 10 an hour -------------------------------------------------------------
+    // --- Per account and address: 10 an hour -----------------------------------------------------
 
     [Fact]
-    public async Task The_eleventh_sign_in_for_one_account_in_an_hour_gets_429_whatever_address_it_comes_from()
+    public async Task The_eleventh_sign_in_for_one_account_from_one_address_in_an_hour_gets_429_but_another_address_is_not_affected()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres, signInPerAccountPerHour: 10);
-        await factory.CreateUserAsync(Email);
+        var user = await factory.CreateUserAsync(Email);
         var client = factory.CreateApiClient();
 
-        // A different address each time, so the per-address limit never applies: only the per-account one can.
+        // One address using up its attempts at the account (the lockout rules are separate and have their own tests).
         for (var attempt = 1; attempt <= 10; attempt++)
         {
-            var response = await client.SignInAsync(Email, "wrong password " + attempt, forwardedFor: $"198.51.100.{attempt}");
+            var response = await client.SignInAsync(Email, "wrong password " + attempt, forwardedFor: "198.51.100.1");
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-
-            // Keep the account itself from locking: that is a separate rule with its own tests.
-            await ResetFailuresAsync(factory);
         }
 
-        var limited = await client.SignInAsync(Email, forwardedFor: "198.51.100.200");
-
+        var limited = await client.SignInAsync(Email, forwardedFor: "198.51.100.1");
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.InRange(RetryAfterSeconds(limited), 1, 3600);
+
+        // The attacker's attempts did not use up the account owner's: they sign in from their own address.
+        var owner = await factory.CreateApiClient().SignInWithTwoFactorAsync(factory, user, forwardedFor: "203.0.113.20");
+        Assert.Equal(HttpStatusCode.OK, owner.StatusCode);
     }
 
     [Fact]
@@ -143,12 +143,12 @@ public class RateLimitTests(PostgresFixture postgres)
 
         for (var attempt = 1; attempt <= 10; attempt++)
         {
-            await client.SignInAsync("ghost@example.test", forwardedFor: $"198.51.100.{attempt}");
+            await client.SignInAsync("ghost@example.test", forwardedFor: "198.51.100.1");
         }
 
         Assert.Equal(
             HttpStatusCode.TooManyRequests,
-            (await client.SignInAsync("ghost@example.test", forwardedFor: "198.51.100.200")).StatusCode);
+            (await client.SignInAsync("ghost@example.test", forwardedFor: "198.51.100.1")).StatusCode);
     }
 
     [Fact]
@@ -160,12 +160,12 @@ public class RateLimitTests(PostgresFixture postgres)
 
         for (var attempt = 0; attempt < 10; attempt++)
         {
-            await client.SignInAsync(variants[attempt % variants.Length], forwardedFor: $"198.51.100.{attempt + 1}");
+            await client.SignInAsync(variants[attempt % variants.Length], forwardedFor: "198.51.100.1");
         }
 
         Assert.Equal(
             HttpStatusCode.TooManyRequests,
-            (await client.SignInAsync(" GHOST@example.test", forwardedFor: "198.51.100.200")).StatusCode);
+            (await client.SignInAsync(" GHOST@example.test", forwardedFor: "198.51.100.1")).StatusCode);
     }
 
     [Fact]
@@ -175,29 +175,29 @@ public class RateLimitTests(PostgresFixture postgres)
         var client = factory.CreateApiClient();
         for (var attempt = 1; attempt <= 11; attempt++)
         {
-            await client.SignInAsync("ghost@example.test", forwardedFor: $"198.51.100.{attempt}");
+            await client.SignInAsync("ghost@example.test", forwardedFor: "198.51.100.1");
         }
 
-        var other = await client.SignInAsync("someone.else@example.test", forwardedFor: "198.51.100.250");
+        var other = await client.SignInAsync("someone.else@example.test", forwardedFor: "198.51.100.1");
 
         Assert.Equal(HttpStatusCode.Unauthorized, other.StatusCode);
     }
 
     [Fact]
-    public void The_account_limiter_allows_ten_then_says_how_long_to_wait()
+    public void The_account_limiter_allows_ten_then_says_how_long_to_wait_and_counts_each_address_separately()
     {
         using var limiter = new SignInAccountLimiter(Options.Create(new RateLimitingOptions { SignInPerAccountPerHour = 10 }));
 
         for (var attempt = 1; attempt <= 10; attempt++)
         {
-            Assert.True(limiter.TryAcquire("a@example.test", out _));
+            Assert.True(limiter.TryAcquire("a@example.test", "198.51.100.1", out _));
         }
 
-        Assert.False(limiter.TryAcquire("a@example.test", out var retryAfter));
+        Assert.False(limiter.TryAcquire("a@example.test", "198.51.100.1", out var retryAfter));
         Assert.InRange(retryAfter, TimeSpan.FromSeconds(1), TimeSpan.FromHours(1));
-        Assert.True(limiter.TryAcquire("b@example.test", out _));
+        Assert.True(limiter.TryAcquire("b@example.test", "198.51.100.1", out _));
+        Assert.True(limiter.TryAcquire("a@example.test", "198.51.100.2", out _)); // the same account from another address has its own ten
     }
-
     // --- Real client addresses ---------------------------------------------------------------
 
     [Fact]
@@ -239,16 +239,5 @@ public class RateLimitTests(PostgresFixture postgres)
         var response = await client.SignInAsync("nobody@example.test", forwardedFor: "10.0.0.99, 198.51.100.7");
 
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-    }
-
-    private static async Task ResetFailuresAsync(ApiFactory factory)
-    {
-        using var scope = factory.Services.CreateScope();
-        var users = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<CaseRegister.Infrastructure.Identity.ApplicationUser>>();
-        var user = await users.FindByEmailAsync(Email);
-        if (user is not null)
-        {
-            await users.ResetAccessFailedCountAsync(user);
-        }
     }
 }

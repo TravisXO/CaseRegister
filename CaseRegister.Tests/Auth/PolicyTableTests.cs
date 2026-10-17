@@ -87,7 +87,7 @@ public class PolicyTableTests(PostgresFixture postgres)
 
         var actual = await TableAsync(people);
 
-        Assert.Equal(68, actual.Count); // 4 roles by 17 policies
+        Assert.Equal(72, actual.Count); // 4 roles by 18 policies
         Assert.Equal(Expected((role, capability) => ExpectedMatrix.Allows(capability, role)), actual);
     }
 
@@ -266,7 +266,7 @@ public class PolicyTableTests(PostgresFixture postgres)
         }
 
         // And the admin actions, which no agent can use, have neither.
-        foreach (var name in new[] { "ViewPendingActions", "ProposeAdminActions", "ConfirmAdminActions", "RestrictAccess", "ViewApplications", "VerifyAuditLog" })
+        foreach (var name in new[] { "ViewPendingActions", "ProposeAdminActions", "ConfirmAdminActions", "RestrictAccess", "ViewApplications", "VerifyAuditLog", "ReceiveSecurityAlerts" })
         {
             Assert.DoesNotContain((await provider.GetPolicyAsync(name))!.Requirements, requirement => requirement is ActiveAgencyRequirement);
         }

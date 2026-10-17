@@ -3,11 +3,13 @@ using CaseRegister.Application.Applications;
 using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
+using CaseRegister.Application.Notifications;
 using CaseRegister.Infrastructure.Approvals;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Identity;
 using CaseRegister.Infrastructure.KeyProtection;
+using CaseRegister.Infrastructure.Notifications;
 using CaseRegister.Infrastructure.Persistence;
 using CaseRegister.Infrastructure.Seeding;
 using CaseRegister.Infrastructure.Security;
@@ -110,10 +112,11 @@ public static class DependencyInjection
                 options.Password.RequireLowercase = false;
                 options.Password.RequireNonAlphanumeric = false;
 
-                // Default lockout is 5 minutes. Same attempt count and same "new users can be locked out" as the default.
+                // Identity's own lockout is switched off: it locked an account for everyone whoever was guessing, which let a stranger shut an
+                // admin out. Lockout is per account and address instead (SignInThrottle), and nothing calls AccessFailedAsync.
+                options.Lockout.AllowedForNewUsers = false; // Default: true.
                 options.Lockout.MaxFailedAccessAttempts = MaxFailedAccessAttempts;
                 options.Lockout.DefaultLockoutTimeSpan = LockoutDuration;
-                options.Lockout.AllowedForNewUsers = true;
 
                 // Only Approved accounts sign in, decided by ApprovedAccountConfirmation. Default: false.
                 // There is no email or phone confirmation step.
@@ -141,7 +144,7 @@ public static class DependencyInjection
         // Default: 1 day. Password reset and similar tokens are short-lived.
         services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = TokenLifespan);
 
-        services.AddScoped<LockoutTracker>();
+        services.AddScoped<SignInThrottle>();
         services.AddScoped<DummyPasswordVerifier>();
         services.AddScoped<ISignInService, SignInService>();
         services.AddScoped<IAccountPasswordService, AccountPasswordService>();
@@ -250,10 +253,20 @@ public static class DependencyInjection
                 $"{StaffInviteOptions.SetupPageUrlKey} must be an absolute https address (http only for localhost) with no # in it.")
             .ValidateOnStart();
 
+        AddNotifications(services);
+
         services.AddScoped<IPendingActionService, PendingActionService>();
         services.AddScoped<IAccountAdministrationService, AccountAdministrationService>();
         services.AddScoped<IAgencyStatus, AgencyStatusReader>();
         services.AddScoped<IAdminSeeder, AdminSeeder>();
+    }
+
+    private static void AddNotifications(IServiceCollection services)
+    {
+        services.AddScoped<NotificationRecipients>();
+        services.AddScoped<TimeBasedNotifications>();
+        services.AddScoped<NotificationDispatcher>();
+        services.AddScoped<INotificationService, NotificationService>();
     }
 
     private static void AddKeyProtection(IServiceCollection services, IConfiguration configuration)

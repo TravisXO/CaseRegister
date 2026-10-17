@@ -8,6 +8,7 @@ using CaseRegister.Domain.Applications;
 using CaseRegister.Domain.Certificates;
 using CaseRegister.Infrastructure.Approvals;
 using CaseRegister.Infrastructure.Auditing;
+using CaseRegister.Infrastructure.Notifications;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,7 @@ internal sealed class MemberSignUpService(
     IPasswordHasher<ApplicationUser> hasher,
     ITurnstileVerifier turnstile,
     IOptions<MembershipOptions> membership,
+    NotificationDispatcher notifications,
     IAuditLog audit,
     Microsoft.Extensions.Logging.ILogger<MemberSignUpService> logger,
     TimeProvider time) : IMemberSignUpService
@@ -74,7 +76,12 @@ internal sealed class MemberSignUpService(
 
         if (existing is null)
         {
-            if (!await TryCreateAsync(claims, remoteIpAddress, cancellationToken))
+            if (await TryCreateAsync(claims, remoteIpAddress, cancellationToken) is { } applicantId)
+            {
+                // Committed: the admins who review applications are told one has arrived (nothing about who).
+                await notifications.ApplicationArrivedAsync(applicantId, time.GetUtcNow(), cancellationToken);
+            }
+            else
             {
                 await IgnoreAsync(claims, "an account with this email address appeared at the same moment", remoteIpAddress, cancellationToken);
             }
@@ -83,6 +90,7 @@ internal sealed class MemberSignUpService(
             && await db.MemberApplications.AnyAsync(application => application.UserId == existing.Id, cancellationToken))
         {
             await ReapplyAsync(existing, claims, remoteIpAddress, cancellationToken);
+            await notifications.ApplicationArrivedAsync(existing.Id, time.GetUtcNow(), cancellationToken);
         }
         else
         {
@@ -151,16 +159,16 @@ internal sealed class MemberSignUpService(
         return (new Claims(email, fullName, command.Password, number!, command.MembershipClass, command.AgencyName.Trim(), certificate!), null);
     }
 
-    private async Task<bool> TryCreateAsync(Claims claims, string? remoteIpAddress, CancellationToken cancellationToken)
+    private async Task<Guid?> TryCreateAsync(Claims claims, string? remoteIpAddress, CancellationToken cancellationToken)
     {
-        var created = false;
+        Guid? created = null;
         var strategy = db.Database.CreateExecutionStrategy();
 
         try
         {
             await strategy.ExecuteAsync(async () =>
             {
-                created = false;
+                created = null;
                 db.ChangeTracker.Clear();
                 await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -179,13 +187,13 @@ internal sealed class MemberSignUpService(
 
                 await LogAsync(AuditAction.MemberSignedUp, user.Id, flags, claims, remoteIpAddress, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-                created = true;
+                created = user.Id;
             });
         }
         catch (DbUpdateException)
         {
             db.ChangeTracker.Clear();
-            return false; // another sign-up with the same email won the race
+            return null; // another sign-up with the same email won the race
         }
 
         return created;

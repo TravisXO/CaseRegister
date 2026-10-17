@@ -5,6 +5,7 @@ using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Identity;
+using CaseRegister.Infrastructure.Notifications;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,9 @@ namespace CaseRegister.Infrastructure.Approvals;
 internal sealed class OperationOutput
 {
     public string? SetupToken { get; set; }
+
+    /// <summary>What somebody should be told, recorded while the operation runs and turned into notifications only after the commit.</summary>
+    public List<NotificationIntent> Intents { get; } = [];
 }
 
 /// <summary>Who an operation is run by, and what on.</summary>
@@ -38,6 +42,9 @@ internal sealed class OperationContext(
     public string? TargetEmail { get; } = targetEmail;
 
     public string? ProposalReason { get; } = proposalReason;
+
+    /// <summary>Names this action in the notifications it causes: the proposal's id when there is one, so the same event is told once.</summary>
+    public Guid EventId { get; init; } = Guid.CreateVersion7();
 
     public OperationOutput Output { get; init; } = new();
 }
@@ -122,7 +129,11 @@ internal sealed class RoleChangeOperation(PendingActionType type, RoleAssignment
             $"roles: {string.Join(", ", plan.After)}",
             AuditAction.RolesChanged,
             plan.User.Id.ToString(),
-            token => roles.ApplyAsync(plan, token));
+            async token =>
+            {
+                await roles.ApplyAsync(plan, token);
+                context.Output.Intents.Add(new RolesChangedIntent(context.EventId, plan.User.Id));
+            });
     }
 }
 
@@ -319,6 +330,7 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
                 user.TwoFactorEnabled = false;
                 SessionEnding.Ensure(await users.UpdateAsync(user));
                 await SessionEnding.EndAllAsync(users, db, user, token);
+                context.Output.Intents.Add(new TwoFactorResetIntent(context.EventId, user.Id));
             });
     }
 }
@@ -346,10 +358,11 @@ internal sealed class SuspendAgencyOperation(AppDbContext db) : IAdminOperation
             "agency: Suspended; its members lose every agent capability",
             AuditAction.AgencySuspended,
             agency.Id.ToString(),
-            token =>
+            async token =>
             {
                 agency.Suspend();
-                return db.SaveChangesAsync(token);
+                await db.SaveChangesAsync(token);
+                context.Output.Intents.Add(new AgencyStatusChangedIntent(context.EventId, agency.Id));
             });
     }
 }
@@ -377,10 +390,11 @@ internal sealed class ReactivateAgencyOperation(AppDbContext db) : IAdminOperati
             "agency: Active",
             AuditAction.AgencyReactivated,
             agency.Id.ToString(),
-            token =>
+            async token =>
             {
                 agency.Reactivate();
-                return db.SaveChangesAsync(token);
+                await db.SaveChangesAsync(token);
+                context.Output.Intents.Add(new AgencyStatusChangedIntent(context.EventId, agency.Id));
             });
     }
 }

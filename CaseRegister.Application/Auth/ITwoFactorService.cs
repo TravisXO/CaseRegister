@@ -15,6 +15,9 @@ public enum TwoFactorOutcome
 
     /// <summary>There is nothing to confirm (no enrolment in progress).</summary>
     NotApplicable,
+
+    /// <summary>Ten wrong authenticator codes in a row: the authenticator is locked and only a recovery code gets in. The code was not checked.</summary>
+    AuthenticatorLocked,
 }
 
 /// <param name="RetryAfter">Set when <see cref="TwoFactorOutcome.RateLimited"/>: how long to wait.</param>

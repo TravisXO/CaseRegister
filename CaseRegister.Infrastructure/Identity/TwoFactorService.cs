@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
+using CaseRegister.Application.Notifications;
 using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
@@ -17,7 +18,8 @@ internal sealed class TwoFactorService(
     AppDbContext db,
     AuthenticatorKeyProtector keyProtector,
     TwoFactorAttemptLimiter limiter,
-    CredentialChecker credentials,
+    SignInThrottle throttle,
+    INotificationService notifications,
     IAuditLog audit,
     Microsoft.Extensions.Logging.ILogger<TwoFactorService> logger,
     TimeProvider timeProvider) : ITwoFactorService
@@ -97,6 +99,8 @@ internal sealed class TwoFactorService(
 
         // The session was restricted to enrolment. Now it has passed a second factor, so it is upgraded.
         await UpgradeSessionAsync(user);
+        await throttle.RecordFullSignInAsync(userId, remoteIpAddress, cancellationToken);
+        await notifications.EnsureTimeBasedAsync(userId, cancellationToken);
 
         return new TwoFactorResult(TwoFactorOutcome.Succeeded, RecoveryCodes: codes);
     }
@@ -116,7 +120,7 @@ internal sealed class TwoFactorService(
         }
 
         var user = await users.FindByIdAsync(userId.ToString());
-        if (user is null || !await signInManager.CanSignInAsync(user) || await users.IsLockedOutAsync(user))
+        if (user is null || !await signInManager.CanSignInAsync(user) || await throttle.LockedUntilAsync(userId, remoteIpAddress, cancellationToken) is not null)
         {
             await context.SignOutAsync(IdentityConstants.TwoFactorUserIdScheme);
             return new TwoFactorResult(TwoFactorOutcome.Failed);
@@ -131,12 +135,6 @@ internal sealed class TwoFactorService(
         var check = await CheckAsync(user, record, code, remoteIpAddress, allowRecoveryCode: true, enableOnSuccess: false, cancellationToken);
         if (check.Outcome != TwoFactorOutcome.Succeeded)
         {
-            // A lockout ends the attempt; otherwise the member may try again until the step cookie expires.
-            if (await users.IsLockedOutAsync(user))
-            {
-                await context.SignOutAsync(IdentityConstants.TwoFactorUserIdScheme);
-            }
-
             return new TwoFactorResult(check.Outcome, check.RetryAfter);
         }
 
@@ -155,6 +153,10 @@ internal sealed class TwoFactorService(
                 IpAddress: remoteIpAddress,
                 Detail: check.UsedRecoveryCode ? "second factor: recovery code" : "second factor: authenticator code"),
             cancellationToken);
+
+        // Fully signed in: the counters start again, and the notifications that depend on the date are made now (there is no scheduler).
+        await throttle.RecordFullSignInAsync(userId, remoteIpAddress, cancellationToken);
+        await notifications.EnsureTimeBasedAsync(userId, cancellationToken);
 
         return new TwoFactorResult(TwoFactorOutcome.Succeeded);
     }
@@ -246,6 +248,13 @@ internal sealed class TwoFactorService(
 
         if (Totp.LooksLikeTotpCode(typed))
         {
+            // Ten wrong authenticator codes in a row lock the authenticator: only a recovery code gets in until the person signs in with one.
+            // The code is not even checked, so a lucky guess cannot get past the lock.
+            if (await throttle.SecondFactorLockedAsync(user.Id, cancellationToken))
+            {
+                return new Check(TwoFactorOutcome.AuthenticatorLocked);
+            }
+
             valid = await TryAuthenticatorCodeAsync(record, typed, enableOnSuccess, cancellationToken);
         }
         else if (allowRecoveryCode && RecoveryCodes.LooksLikeRecoveryCode(code))
@@ -259,7 +268,7 @@ internal sealed class TwoFactorService(
 
         if (!valid)
         {
-            await credentials.RegisterFailureAsync(user, remoteIpAddress, cancellationToken);
+            await throttle.RecordSecondFactorFailureAsync(user.Id, remoteIpAddress, cancellationToken);
             await audit.WriteStandaloneAsync(
                 new AuditEntry(AuditAction.TwoFactorFailed, user.Id, IpAddress: remoteIpAddress, Detail: "invalid code"),
                 logger, cancellationToken);
@@ -267,8 +276,8 @@ internal sealed class TwoFactorService(
             return new Check(TwoFactorOutcome.Failed);
         }
 
-        // Both factors have now passed, so earlier failed attempts are forgotten.
-        await users.ResetAccessFailedCountAsync(user);
+        // A right code ends the run of wrong ones. (The password counters are cleared only by a full sign-in: see VerifySignInAsync.)
+        await throttle.ClearSecondFactorFailuresAsync(user.Id, cancellationToken);
 
         if (usedRecoveryCode)
         {
@@ -309,6 +318,7 @@ internal sealed class TwoFactorService(
         }
         catch (DbUpdateConcurrencyException)
         {
+            db.Entry(record).State = EntityState.Detached; // the failed save must not be retried by the next one
             return false;
         }
     }
@@ -334,6 +344,7 @@ internal sealed class TwoFactorService(
         }
         catch (DbUpdateConcurrencyException)
         {
+            db.Entry(record).State = EntityState.Detached;
             return false; // someone used it at the same moment
         }
     }

@@ -168,6 +168,12 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("GET", "api/me", "two-factor"),
             new("GET", "api/me/practising-certificates", "two-factor"),
             new("POST", "api/me/practising-certificates", "two-factor"),
+
+            // Everyone signed in with two factors has an inbox; each notification is checked against its owner.
+            new("GET", "api/notifications", "two-factor"),
+            new("POST", "api/notifications/{id:guid}/acknowledge", "two-factor"),
+            new("POST", "api/notifications/{id:guid}/read", "two-factor"),
+            new("POST", "api/notifications/read-all", "two-factor"),
         }.OrderBy(rule => rule.Route).ThenBy(rule => rule.Method).ToList();
 
         Assert.Equal(expected, endpoints);

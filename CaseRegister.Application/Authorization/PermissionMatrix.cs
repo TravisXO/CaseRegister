@@ -24,6 +24,9 @@ public enum Capability
     RestrictAccess,
     ViewApplications,
     VerifyAuditLog,
+
+    // Being told when an account is locked out or a break-glass action is run. Admins only.
+    ReceiveSecurityAlerts,
 }
 
 /// <summary>How far a role's capability reaches across records.</summary>
@@ -114,6 +117,9 @@ public static class PermissionMatrix
 
             // Checking the audit chain for tampering. Admins only, and the check is itself audited.
             [Capability.VerifyAuditLog] = Grant((Role.Admin, AccessScope.Unscoped)),
+
+            // Who is told about lockouts and break-glass actions. The notification service asks the matrix; no role is named anywhere else.
+            [Capability.ReceiveSecurityAlerts] = Grant((Role.Admin, AccessScope.Unscoped)),
         };
 
     public static IEnumerable<Capability> Capabilities => Enum.GetValues<Capability>();

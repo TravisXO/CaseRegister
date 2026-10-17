@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using CaseRegister.Domain.Accounts;
 using CaseRegister.Tests.Database;
 using CaseRegister.Tests.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -337,7 +338,7 @@ public class TwoFactorSignInTests(PostgresFixture postgres)
     // --- Failed codes and lockout --------------------------------------------------------------
 
     [Fact]
-    public async Task Five_wrong_codes_lock_the_account_even_against_the_right_code()
+    public async Task Wrong_codes_do_not_lock_the_account_or_the_password_step_and_the_right_code_still_works()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         var user = await factory.CreateUserAsync(Email);
@@ -348,12 +349,9 @@ public class TwoFactorSignInTests(PostgresFixture postgres)
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.VerifyTwoFactorAsync("00000" + i)).StatusCode);
         }
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
-        Assert.Equal(1, await factory.WithDbAsync(db => db.LockoutEvents.CountAsync()));
-        Assert.True((await factory.GetUserAsync(Email)).LockoutEnd > DateTimeOffset.UtcNow);
-
-        // And the password step is closed too.
-        Assert.Equal(HttpStatusCode.Unauthorized, (await factory.CreateApiClient().SignInAsync(Email)).StatusCode);
+        // Five wrong codes are five wrong codes: not a lockout of anything. (Ten in a row lock the authenticator; see SignInThrottleTests.)
+        Assert.Equal(0, await factory.WithDbAsync(db => db.SignInLockouts.CountAsync()));
+        Assert.Equal(HttpStatusCode.OK, (await client.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
     }
 
     [Fact]
@@ -362,17 +360,19 @@ public class TwoFactorSignInTests(PostgresFixture postgres)
         await using var factory = await ApiFactory.CreateAsync(postgres);
         var user = await factory.CreateUserAsync(Email);
         var first = await TwoFactorFlows.AtTheCodeStepAsync(factory, user);
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < 6; i++)
         {
             await first.VerifyTwoFactorAsync("00000" + i);
         }
 
-        // Back to the password step (right password), then two more wrong codes: five in all.
+        // Back to the password step (right password), then four more wrong codes: ten in all, so the authenticator is locked.
         var second = await TwoFactorFlows.AtTheCodeStepAsync(factory, user);
-        await second.VerifyTwoFactorAsync("111110");
-        await second.VerifyTwoFactorAsync("111111");
+        for (var i = 0; i < 4; i++)
+        {
+            await second.VerifyTwoFactorAsync("11111" + i);
+        }
 
-        Assert.Equal(1, await factory.WithDbAsync(db => db.LockoutEvents.CountAsync()));
+        Assert.Equal(10, await factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null && f.Kind == CaseRegister.Infrastructure.Persistence.FailureKind.SecondFactor)));
         Assert.Equal(HttpStatusCode.Unauthorized, (await second.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
     }
 
@@ -387,29 +387,29 @@ public class TwoFactorSignInTests(PostgresFixture postgres)
             await client.VerifyTwoFactorAsync("00000" + i);
         }
 
-        Assert.Equal(3, (await factory.GetUserAsync(Email)).AccessFailedCount);
+        Assert.Equal(3, await factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null)));
         Assert.Equal(HttpStatusCode.OK, (await client.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
 
-        Assert.Equal(0, (await factory.GetUserAsync(Email)).AccessFailedCount);
+        Assert.Equal(0, await factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null)));
     }
 
     [Fact]
-    public async Task Failed_codes_and_lockouts_are_audited()
+    public async Task Failed_codes_are_audited_and_ten_in_a_row_lock_the_authenticator_without_changing_any_status()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         var user = await factory.CreateUserAsync(Email);
         var client = await TwoFactorFlows.AtTheCodeStepAsync(factory, user);
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 10; i++)
         {
             await client.VerifyTwoFactorAsync("00000" + i);
         }
 
         var actions = (await factory.WithDbAsync(db => db.AuditLog.AsNoTracking().ToListAsync())).Select(record => record.Action).ToList();
 
-        Assert.Equal(5, actions.Count(action => action == "TwoFactorFailed"));
-        Assert.Contains("AccountLockedOut", actions);
+        Assert.Equal(10, actions.Count(action => action == "TwoFactorFailed"));
+        Assert.DoesNotContain("AccountSuspended", actions);
+        Assert.Equal(AccountStatus.Approved, (await factory.GetUserAsync(Email)).AccountStatus);
     }
-
     [Theory]
     [InlineData("")]
     [InlineData("12345")]
@@ -428,7 +428,7 @@ public class TwoFactorSignInTests(PostgresFixture postgres)
         Assert.Contains(response.StatusCode, _validationOrWrongCode);
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            Assert.Equal(1, (await factory.GetUserAsync(Email)).AccessFailedCount);
+            Assert.Equal(1, await factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null)));
         }
     }
 
@@ -473,8 +473,8 @@ public class TwoFactorSignInTests(PostgresFixture postgres)
         var limited = await client.VerifyTwoFactorAsync(factory.NextTotpCode(user)); // a perfectly good code
 
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
-        Assert.Equal(3, (await factory.GetUserAsync(Email)).AccessFailedCount);
-        Assert.Equal(0, await factory.WithDbAsync(db => db.LockoutEvents.CountAsync()));
+        Assert.Equal(3, await factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null)));
+        Assert.Equal(0, await factory.WithDbAsync(db => db.SignInLockouts.CountAsync()));
     }
 
     [Fact]

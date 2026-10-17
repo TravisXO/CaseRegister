@@ -53,6 +53,9 @@ public enum AuditAction
     AuditVerified,
     AuditAnchored,
     RecordViewed,
+
+    // Hardening: notifications, lockout, recovery and break-glass.
+    NotificationAcknowledged,
 }
 
 /// <param name="Action">What happened.</param>

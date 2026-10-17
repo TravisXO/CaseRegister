@@ -124,20 +124,19 @@ public class SecurityConfigurationTests(ConfigurationFixture fixture) : IClassFi
     // --- Lockout -----------------------------------------------------------------------------
 
     [Fact]
-    public void Five_failed_attempts_lock_an_account_for_15_minutes_and_new_users_can_be_locked()
+    public void Identitys_own_lockout_is_switched_off_because_the_sign_in_throttle_does_the_job()
     {
         var lockout = Options<IdentityOptions>().Lockout;
 
-        Assert.Equal(5, lockout.MaxFailedAccessAttempts);
-        Assert.Equal(TimeSpan.FromMinutes(15), lockout.DefaultLockoutTimeSpan);
-        Assert.True(lockout.AllowedForNewUsers);
+        Assert.False(lockout.AllowedForNewUsers);
     }
 
     [Fact]
-    public void Three_lockouts_in_24_hours_suspend_the_account()
+    public void The_sign_in_lockout_ladder_is_15_minutes_then_1_hour_then_4_hours_within_24_hours()
     {
-        Assert.Equal(3, LockoutTracker.SuspensionThreshold);
-        Assert.Equal(TimeSpan.FromHours(24), LockoutTracker.SuspensionWindow);
+        Assert.Equal([TimeSpan.FromMinutes(15), TimeSpan.FromHours(1), TimeSpan.FromHours(4)], SignInThrottle.Ladder);
+        Assert.Equal(TimeSpan.FromHours(24), SignInThrottle.Window);
+        Assert.Equal(5, SignInThrottle.PasswordFailuresBeforeAddressLockout);
     }
 
     // --- Session cookie ----------------------------------------------------------------------

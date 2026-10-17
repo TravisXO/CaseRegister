@@ -3,6 +3,7 @@ using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Identity;
+using CaseRegister.Infrastructure.Notifications;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,7 @@ internal sealed partial class PendingActionService(
     IAuditLog audit,
     TimeProvider time,
     IOptions<StaffInviteOptions> invites,
+    NotificationDispatcher notifications,
     ILogger<PendingActionService> logger) : IPendingActionService
 {
     private const string OnePendingIndex = "ux_pending_actions_one_pending_per_target";
@@ -33,7 +35,7 @@ internal sealed partial class PendingActionService(
 
     private sealed record Actor(Guid Id, Guid? AgencyId);
 
-    private sealed record Attempt(ConfirmOutcome Outcome, IReadOnlyList<ApprovalViolation>? Problems = null, bool Repeat = false, string? SetupToken = null);
+    private sealed record Attempt(ConfirmOutcome Outcome, IReadOnlyList<ApprovalViolation>? Problems = null, bool Repeat = false, string? SetupToken = null, IReadOnlyList<NotificationIntent>? Intents = null);
 
     // --- Proposing ---------------------------------------------------------------------------------
 
@@ -135,9 +137,15 @@ internal sealed partial class PendingActionService(
             await transaction.CommitAsync(cancellationToken);
         });
 
-        return outcome == ProposeOutcome.Proposed
-            ? new ProposeResult(outcome, await ViewAsync(action.Id, cancellationToken))
-            : new ProposeResult(outcome);
+        if (outcome == ProposeOutcome.Proposed)
+        {
+            // After the commit: the other admins who can decide it are told it is waiting.
+            await notifications.ProposalMadeAsync(action.Id, action.Type, proposer.Id, action.TargetUserId, cancellationToken);
+
+            return new ProposeResult(outcome, await ViewAsync(action.Id, cancellationToken));
+        }
+
+        return new ProposeResult(outcome);
     }
 
     // --- Reading -----------------------------------------------------------------------------------
@@ -224,6 +232,12 @@ internal sealed partial class PendingActionService(
         }
 
         var attempt = await ApplyAsync(action, confirmer, command.PayloadHash, remoteIpAddress, cancellationToken);
+
+        if (attempt is { Outcome: ConfirmOutcome.Confirmed, Repeat: false })
+        {
+            // Committed. Now the proposer is told, and so is anyone the action touched (the person whose roles changed, an agency's members).
+            await notifications.ProposalConfirmedAsync(id, action.Type, action.ProposedByUserId, attempt.Intents ?? [], cancellationToken);
+        }
 
         return attempt.Outcome switch
         {
@@ -325,7 +339,7 @@ internal sealed partial class PendingActionService(
                     cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
-                result = new Attempt(ConfirmOutcome.Confirmed, SetupToken: output.SetupToken);
+                result = new Attempt(ConfirmOutcome.Confirmed, SetupToken: output.SetupToken, Intents: [.. output.Intents]);
             });
         }
         catch (DbUpdateConcurrencyException)
@@ -470,6 +484,11 @@ internal sealed partial class PendingActionService(
             return new DecisionResult(DecisionOutcome.NotPending, Problems: [new ApprovalViolation(ApprovalRules.NotPending, "This proposal was decided at the same moment.")]);
         }
 
+        if (!withdraw)
+        {
+            // Rejected (committed): the admin who proposed it is told. A withdrawal is their own act, so there is nobody to tell.
+            await notifications.ProposalRejectedAsync(id, action.Type, action.ProposedByUserId, cancellationToken);
+        }
 
         return new DecisionResult(DecisionOutcome.Done, await ViewAsync(id, cancellationToken));
     }
@@ -610,7 +629,7 @@ internal sealed partial class PendingActionService(
             cancellationToken);
 
     private static OperationContext ContextOf(PendingAction action, Guid actorId, OperationOutput output) =>
-        new(actorId, action.TargetUserId, action.TargetAgencyId, action.Payload, action.TargetEmail, action.Reason) { Output = output };
+        new(actorId, action.TargetUserId, action.TargetAgencyId, action.Payload, action.TargetEmail, action.Reason) { Output = output, EventId = action.Id };
 
     // An invite has no account yet, so it is named by a label of its email address, never the address itself.
     private static string TargetTypeOf(PendingAction action) => action.TargetUserId is not null ? "User" : action.TargetAgencyId is not null ? "Agency" : "Email";
