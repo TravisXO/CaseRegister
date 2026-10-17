@@ -64,3 +64,14 @@ Things that have caught people out:
   real tree. Copy the repository without `bin`, `obj` and `.git`.
 - **A hung test is reported, not waited for.** Each run has a 5 minute hang timeout and a 15 minute limit overall.
 - **The file is put back** when the script ends, even if you press Ctrl-C. Check with `git status` after a run anyway.
+
+## Running tests on Linux from Windows
+
+CI runs on Linux; on a Windows machine the same tests can be run in a Linux container, which matters for anything that depends on the operating system (loading certificates, for one). From the repository folder, with a `.dockerignore` that leaves out `bin`, `obj`, `node_modules` and `.git`:
+
+```powershell
+docker build -f Dockerfile.linuxtest -t caseregister-linuxtest .
+docker run --rm -v //var/run/docker.sock:/var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal --add-host host.docker.internal:host-gateway caseregister-linuxtest --filter "FullyQualifiedName~CertificateSwap"
+```
+
+where `Dockerfile.linuxtest` is the SDK image (`mcr.microsoft.com/dotnet/sdk:10.0`) with the repository copied in, `dotnet build` of the test project, and `dotnet test --no-build` as the entry point. The tests that need PostgreSQL start it as a sibling container through the mounted Docker socket.

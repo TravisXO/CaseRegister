@@ -11,13 +11,13 @@ public sealed class AuditOptions
     public const string SectionName = "Audit";
     public const int MinimumKeyBytes = 32;
 
-    /// <summary>The id of the key new entries are signed with.</summary>
+    /// <summary>The id of the key new entries are signed with. It is the only one that signs.</summary>
     public string CurrentKeyId { get; set; } = string.Empty;
 
-    /// <summary>The id of the key used before the last rotation. Entries signed with it still verify.</summary>
-    public string? PreviousKeyId { get; set; }
-
-    /// <summary>Key id to key, as base64. At least 32 bytes each.</summary>
+    /// <summary>
+    /// Key id to key, as base64, at least 32 bytes each. Every key ever used stays here for ever: an entry is checked with the key named on it,
+    /// so removing a retired key would make every entry it signed impossible to verify. Rotating adds a key and moves <see cref="CurrentKeyId"/>.
+    /// </summary>
     public Dictionary<string, string> Keys { get; set; } = [];
 
     /// <summary>Where the local anchor file lives (relative to the content root unless absolute). Empty means no anchor store yet.</summary>
@@ -34,11 +34,17 @@ public sealed class AuditOptions
             return "Audit:CurrentKeyId is not configured.";
         }
 
-        foreach (var id in new[] { CurrentKeyId, PreviousKeyId }.OfType<string>().Where(id => !string.IsNullOrWhiteSpace(id)))
+        if (!Keys.TryGetValue(CurrentKeyId, out var current) || string.IsNullOrWhiteSpace(current))
         {
-            if (!Keys.TryGetValue(id, out var encoded) || string.IsNullOrWhiteSpace(encoded))
+            return $"Audit:Keys:{CurrentKeyId} is not configured. Set it with 'dotnet user-secrets' or the Audit__Keys__{CurrentKeyId} environment variable.";
+        }
+
+        // Every key that is configured must be usable, current or retired: a broken retired key would only be found when an old entry is checked.
+        foreach (var (id, encoded) in Keys)
+        {
+            if (string.IsNullOrWhiteSpace(encoded))
             {
-                return $"Audit:Keys:{id} is not configured. Set it with 'dotnet user-secrets' or the Audit__Keys__{id} environment variable.";
+                return $"Audit:Keys:{id} is empty.";
             }
 
             try
@@ -54,9 +60,7 @@ public sealed class AuditOptions
             }
         }
 
-        return string.Equals(CurrentKeyId, PreviousKeyId, StringComparison.Ordinal)
-            ? "Audit:PreviousKeyId must differ from the current key."
-            : null;
+        return null;
     }
 }
 

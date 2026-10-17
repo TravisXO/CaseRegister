@@ -187,7 +187,6 @@ public static class DependencyInjection
             {
                 var section = configuration.GetSection(AuditOptions.SectionName);
                 options.CurrentKeyId = section["CurrentKeyId"] ?? string.Empty;
-                options.PreviousKeyId = section["PreviousKeyId"];
                 options.AnchorFilePath = section["AnchorFilePath"];
                 section.GetSection("R2").Bind(options.R2);
                 foreach (var key in section.GetSection("Keys").GetChildren())
@@ -280,8 +279,11 @@ public static class DependencyInjection
 
     private static void AddKeyProtection(IServiceCollection services, IConfiguration configuration)
     {
-        // Throws now, at startup, if the certificate is missing or unreadable.
-        var certificate = DataProtectionCertificate.Load(configuration);
+        // Throws now, at startup, if the certificate is missing or unreadable. Held for as long as the application runs.
+        var certificates = DataProtectionCertificates.Load(configuration);
+        services.AddSingleton(certificates);
+        services.AddHostedService<KeyRingGuard>();
+        services.AddScoped<KeyVerifier>();
 
         services.AddDataProtection()
             // Default: derived from the content root, which would change between machines and deployments.
@@ -296,7 +298,9 @@ public static class DependencyInjection
                 ValidationAlgorithm = ValidationAlgorithm.HMACSHA256,
             })
             .PersistKeysToDbContext<AppDbContext>()
-            .ProtectKeysWithCertificate(certificate);
+            // New keys are protected with the current certificate. Older certificates are listed only so that keys protected with them can still be read.
+            .ProtectKeysWithCertificate(certificates.Current)
+            .UnprotectKeysWithAnyCertificate([.. certificates.All]);
     }
 
     internal static void AddExternalClients(IServiceCollection services)

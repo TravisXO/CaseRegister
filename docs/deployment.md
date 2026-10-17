@@ -83,7 +83,7 @@ On your machine, in PowerShell, from the repository folder:
 It writes each secret to its own file in that folder (which must be outside any git repository), prints only the file names and which setting each belongs in, and tells you when the certificate expires. It prints no secret.
 
 1. Copy every file into your password manager. **The audit key and the certificate cannot be made again.**
-2. Write the certificate's **expiry date** (the script prints it; it is five years from the day you made it) in your calendar, two months early. Data protection does not stop working on that date by itself, but a certificate past its date should be replaced, and replacing it needs a small piece of code first (the application reads one certificate; it would need to accept the old one for reading while the new one writes). Do not leave that to the last week.
+2. Write the certificate's **expiry date** (the script prints it; it is five years from the day you made it) in your calendar, two months early. Replacing it is supported (the old one is kept for reading; see `docs/runbooks/key-recovery.md`), but do not leave it to the last week.
 3. Delete the folder when everything is in the password manager.
 
 ## 3. Cloudflare R2: the audit anchors
@@ -160,7 +160,7 @@ What each command needs in its environment (set with `$env:Name = Ask 'Name'`):
 | Command | Variables |
 | --- | --- |
 | `migrate` | `ConnectionStrings__Migrations` |
-| `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
+| `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit`, `verify-keys` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
 
 The variables are only in that window. Environment variables beat user-secrets, so the development values are never used while they are set, and each command prints the database host and name before it does anything, so you can see it is the production one.
 
@@ -279,8 +279,7 @@ The order for a release that has a migration (because merging to `main` deploys 
   3. Pages: change `PROXY_SECRET` to the new value. Redeploy the site. Check the smoke test.
   4. Render: set `Proxy__Secret` to the new value and delete `Proxy__NextSecret`. Redeploy.
   5. Update your password manager.
-- **The audit key:** make `k2` with `New-ProductionKeys.ps1 -AuditKeyId k2` (it makes a new certificate too; keep only the key file and discard the rest). On Render add `Audit__Keys__k2`, then set `Audit__CurrentKeyId` = `k2` and `Audit__PreviousKeyId` = `k1`. **The application accepts only the current and the previous key**: an entry signed with an older key is reported as unverifiable. So after a second rotation the entries signed with `k1` stop verifying. Until the verifier is changed to accept every retired key, rotate rarely, keep every retired key for ever, and verify the chain (`verify-audit`) immediately after a rotation.
-- **The data protection certificate:** needs the small code change mentioned in step 2 (accept the old certificate for reading) before it can be replaced. Do that well before it expires.
+- **The audit key, the pseudonymisation key and the data protection certificate:** see `docs/runbooks/key-recovery.md`, which also says where each is escrowed and what happens if one is lost. In short: the application keeps **every** audit key you have ever configured (only the current one signs), so a rotation adds a key and never removes one; an older data protection certificate is kept as `DataProtection__Previous__<n>__...` so the keys it protected stay readable; and `verify-keys` checks it all.
 - **Turnstile secret:** rotate in the Turnstile dashboard, then set `Turnstile__SecretKey` on Render.
 - **The R2 token:** create a new token for the bucket, set the three `Audit__R2__*` values on Render, check the next audit write succeeds, then delete the old token.
 - **The application's database password:** `ALTER ROLE case_register_app PASSWORD '<new>';` in the SQL editor, then update `ConnectionStrings__Default` on Render.

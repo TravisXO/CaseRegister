@@ -44,6 +44,11 @@ if (args.Length > 0 && args[0] == SeedAdminCommand.Name)
     return await SeedAdminCommand.RunAsync(args, app.Services, app.Configuration, new ConsoleTerminal());
 }
 
+if (args.Length > 0 && KeyCommands.Handles(args[0]))
+{
+    return await KeyCommands.RunAsync(args, app.Services, new ConsoleTerminal());
+}
+
 if (args.Length > 0 && BreakGlassCommands.Handles(args[0]))
 {
     return await BreakGlassCommands.RunAsync(args, app.Services, app.Configuration, new ConsoleTerminal());

@@ -21,13 +21,13 @@ internal sealed class AuditKeyring : IAuditKeyring
             throw new InvalidOperationException(problem);
         }
 
-        Current = new AuditKey(settings.CurrentKeyId, Convert.FromBase64String(settings.Keys[settings.CurrentKeyId]));
-        _accepted[Current.Id] = Current;
-
-        if (!string.IsNullOrWhiteSpace(settings.PreviousKeyId))
+        // Every key in the configuration is accepted for checking, whatever its age; only the current one signs.
+        foreach (var (id, encoded) in settings.Keys)
         {
-            _accepted[settings.PreviousKeyId] = new AuditKey(settings.PreviousKeyId, Convert.FromBase64String(settings.Keys[settings.PreviousKeyId]));
+            _accepted[id] = new AuditKey(id, Convert.FromBase64String(encoded));
         }
+
+        Current = _accepted[settings.CurrentKeyId];
     }
 
     public AuditKey Current { get; }

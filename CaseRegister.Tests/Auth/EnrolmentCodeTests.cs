@@ -448,7 +448,6 @@ public sealed class EnrolmentCodeTests(PostgresFixture postgres)
         await using var rotated = world.Factory.CreateSibling(settings =>
         {
             settings["Audit:CurrentKeyId"] = ApiFactory.SecondKeyId;
-            settings["Audit:PreviousKeyId"] = ApiFactory.TestKeyId;
             settings[$"Audit:Keys:{ApiFactory.SecondKeyId}"] = ApiFactory.SecondKeyBase64;
         });
         var terminal = Answers(world.Person.Email!);

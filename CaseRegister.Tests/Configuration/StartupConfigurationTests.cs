@@ -119,9 +119,9 @@ public sealed class StartupConfigurationTests : IDisposable
     }
 
     [Fact]
-    public void The_app_fails_at_startup_when_the_previous_audit_key_is_named_but_missing()
+    public void The_app_fails_at_startup_when_a_retired_audit_key_is_present_but_broken()
     {
-        using var factory = ApiFactory.WithoutDatabase(settings => settings["Audit:PreviousKeyId"] = "k0");
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["Audit:Keys:k0"] = "too short");
 
         AssertStartupFailsMentioning(factory, "Audit:Keys:k0");
     }

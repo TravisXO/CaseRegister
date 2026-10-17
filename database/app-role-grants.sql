@@ -83,6 +83,16 @@ BEGIN
 END
 $$;
 
+-- The data protection keys are never changed or removed by the application: it adds a key when one is due and that is all. Deleting or
+-- rewriting a row would make everything encrypted with that key (authenticator keys, sessions) unreadable for good.
+DO $$
+BEGIN
+    IF to_regclass('public.data_protection_keys') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.data_protection_keys FROM case_register_app;
+    END IF;
+END
+$$;
+
 -- The roles are fixed by a migration. The running application can read them and assign them to users
 -- (that is the user_roles table), but it cannot create, rename or remove a role.
 DO $$
