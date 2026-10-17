@@ -183,37 +183,70 @@ public sealed class EnrolmentCodeTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task The_code_works_once()
+    public async Task The_code_is_not_used_up_by_typing_it_in_so_abandoning_set_up_and_coming_back_still_works()
     {
         await using var world = await WorldAsync();
         var code = await world.ResetAsync();
 
+        // Redeem it, start setting up, and walk away.
         var first = world.Factory.CreateApiClient();
         await first.SignInAsync(world.Person.Email!);
         Assert.Equal(HttpStatusCode.OK, (await RedeemAsync(first, code)).StatusCode);
+        var (start, _, _) = await TwoFactorFlows.StartEnrolmentAsync(first);
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        Assert.Null((await world.Codes()).Single().UsedAt);
 
-        // Signing in again without finishing, and trying the same code, gets nowhere: the account stays shut until an admin resets it again.
+        // Later, a fresh sign-in is still asked for the code, and the same code still works.
+        world.Factory.Clock.Advance(TimeSpan.FromHours(30));
         var second = world.Factory.CreateApiClient();
         Assert.Equal("enrolment-code-required", await TwoFactorFlows.StatusAsync(await second.SignInAsync(world.Person.Email!)));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await RedeemAsync(second, code)).StatusCode);
-        Assert.NotNull((await world.Codes()).Single().UsedAt);
+        Assert.Equal(HttpStatusCode.OK, (await RedeemAsync(second, code)).StatusCode);
+        await TwoFactorFlows.EnrolFullyAsync(world.Factory, second, world.Person);
+
+        // Enrolment is finished: the code is used up for good.
+        var used = Assert.Single(await world.Codes());
+        Assert.NotNull(used.UsedAt);
+        Assert.NotNull(used.CompletedAt);
+        var after = world.Factory.CreateApiClient();
+        Assert.Equal("two-factor-required", await TwoFactorFlows.StatusAsync(await after.SignInAsync(world.Person.Email!)));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await RedeemAsync(after, code)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await RedeemAsync(world.Factory.CreateApiClient(), code)).StatusCode); // and no step cookie at all
     }
 
     [Fact]
-    public async Task Two_requests_with_the_same_code_at_the_same_moment_let_only_one_in()
+    public async Task Each_wrong_try_counts_towards_the_second_factor_limit_and_ten_in_a_row_lock_it()
     {
         await using var world = await WorldAsync();
         var code = await world.ResetAsync();
-        var clients = new[] { world.Factory.CreateApiClient(), world.Factory.CreateApiClient() };
-        foreach (var client in clients)
+        var client = world.Factory.CreateApiClient();
+        await client.SignInAsync(world.Person.Email!);
+
+        for (var wrong = 0; wrong < 10; wrong++)
         {
-            await client.SignInAsync(world.Person.Email!);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await RedeemAsync(client, "AAAA-BBBB-CCCC")).StatusCode);
         }
 
-        var results = await Task.WhenAll(clients.Select(client => RedeemAsync(client, code)));
+        Assert.Equal(10, await world.Factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.UserId == world.Person.Id && f.Kind == CaseRegister.Infrastructure.Persistence.FailureKind.SecondFactor && f.ClearedAt == null)));
 
-        Assert.Equal(1, results.Count(response => response.StatusCode == HttpStatusCode.OK));
-        Assert.Equal(1, results.Count(response => response.StatusCode == HttpStatusCode.Unauthorized));
+        // Locked: even the right code is not accepted now.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await RedeemAsync(client, code)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_right_code_ends_the_run_of_wrong_ones()
+    {
+        await using var world = await WorldAsync();
+        var code = await world.ResetAsync();
+        var client = world.Factory.CreateApiClient();
+        await client.SignInAsync(world.Person.Email!);
+
+        for (var wrong = 0; wrong < 4; wrong++)
+        {
+            await RedeemAsync(client, "AAAA-BBBB-CCCC");
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await RedeemAsync(client, code)).StatusCode);
+        Assert.Equal(0, await world.Factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.UserId == world.Person.Id && f.ClearedAt == null)));
     }
 
     [Fact]

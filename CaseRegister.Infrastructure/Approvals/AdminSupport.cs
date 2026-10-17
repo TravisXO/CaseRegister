@@ -120,7 +120,7 @@ internal static class SessionEnding
     {
         var auth = await signInManager.Context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
         List<Claim> carried = [];
-        foreach (var type in new[] { AuthenticationClaims.Amr, AuthenticationClaims.SessionId })
+        foreach (var type in new[] { AuthenticationClaims.Amr, AuthenticationClaims.SessionId, AuthenticationClaims.EnrolmentCode })
         {
             if (auth.Principal?.FindFirst(type) is { } claim)
             {

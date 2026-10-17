@@ -331,7 +331,7 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
         return new OperationPlan(
             [],
             $"two-factor: {(authenticator is null ? "removed, waiting for a new set-up" : authenticator.EnabledAt is null ? "being set up" : "on")}; unused recovery codes: {unusedCodes}",
-            "two-factor: removed; recovery codes revoked; all sessions ended; one-time enrolment code made (72 hours, single use)",
+            "two-factor: removed; recovery codes revoked; all sessions ended; one-time enrolment code made (72 hours, used up when set-up is finished)",
             AuditAction.TwoFactorReset,
             user.Id.ToString(),
             async token =>

@@ -86,7 +86,7 @@ public sealed class AuthController(
         };
     }
 
-    /// <summary>After a reset: the one-time code an admin handed over. Only works right after step one, and only once.</summary>
+    /// <summary>After a reset: the one-time code an admin handed over. Only works right after step one; it is used up when set-up is finished, and good for 72 hours until then.</summary>
     [HttpPost("2fa/enrolment-code")]
     [AllowAnonymous]
     [ProducesResponseType<StatusResponse>(StatusCodes.Status200OK)]

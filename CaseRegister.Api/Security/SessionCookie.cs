@@ -172,7 +172,7 @@ public static class SessionCookie
             return Task.CompletedTask;
         }
 
-        foreach (var claim in context.CurrentPrincipal.Claims.Where(c => c.Type is AuthenticationClaims.Amr or AuthenticationClaims.SessionId))
+        foreach (var claim in context.CurrentPrincipal.Claims.Where(c => c.Type is AuthenticationClaims.Amr or AuthenticationClaims.SessionId or AuthenticationClaims.EnrolmentCode))
         {
             if (!identity.HasClaim(claim.Type, claim.Value))
             {

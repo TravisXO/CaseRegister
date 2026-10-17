@@ -181,7 +181,7 @@ export function ProposalPage() {
                   title="One-time enrolment code"
                   lines={[enrolmentCode]}
                   fileName="caseregister-enrolment-code.txt"
-                  instructions="Give this code to the person in person or by phone, never in writing. They need it with their password to set up two-factor again. It works once, for 72 hours."
+                  instructions="Give this code to the person in person or by phone, never in writing. They need it with their password to set up two-factor again. It is good for 72 hours, until set-up is finished."
                   doneLabel="I have given it to them"
                   onDone={() => {
                     setEnrolmentCode(null);

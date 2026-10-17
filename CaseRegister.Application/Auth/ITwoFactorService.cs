@@ -51,7 +51,7 @@ public interface ITwoFactorService
 
     /// <summary>
     /// After a reset: checks the one-time enrolment code for somebody who has passed the password step, and opens the restricted session
-    /// that can reach enrolment. The code works once.
+    /// that can reach enrolment. The code is not used up by this: it is, when enrolment is finished.
     /// </summary>
     Task<TwoFactorResult> RedeemEnrolmentCodeAsync(string code, string? remoteIpAddress, CancellationToken cancellationToken = default);
 

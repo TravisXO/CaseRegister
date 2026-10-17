@@ -305,7 +305,7 @@ dotnet run --project CaseRegister.Api --configuration Release --no-launch-profil
 dotnet run --project CaseRegister.Api --configuration Release --no-launch-profile -- suspend-admin
 ```
 
-- **`reset-two-factor`** is for a lost phone when no second admin can confirm (for example an admin, with only two admins). It removes the person's authenticator and recovery codes, signs them out everywhere and prints a one-time enrolment code, **once**. Give it to the person in person or by phone; they need it, with their password, at their next sign-in. It works once and lasts 72 hours.
+- **`reset-two-factor`** is for a lost phone when no second admin can confirm (for example an admin, with only two admins). It removes the person's authenticator and recovery codes, signs them out everywhere and prints a one-time enrolment code, **once**. Give it to the person in person or by phone; they need it, with their password, at their next sign-in. It lasts 72 hours and is used up when they finish setting up two-factor; if they abandon set-up they can come back with the same code. Wrong tries count towards the ten-wrong-codes limit.
 - **`suspend-admin`** suspends an admin even if that leaves fewer than two active admins. It is the only way below the floor of two.
 - Both refuse if the audit key configured here is not the one that signed the latest audit entry (the wrong keys are in this window), if the migrations are behind, or if a break-glass action was already run on that person in the last 24 hours.
 - Both write the audit log (`BreakGlassUsed`, with the reason, and the ordinary entry for what was done) and send a **critical** notification to every admin and to the person, which each has to acknowledge.

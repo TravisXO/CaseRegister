@@ -46,7 +46,7 @@ export function EnrolmentCodePage() {
         <TextField
           id="code"
           label="Enrolment code"
-          hint="Twelve letters and numbers, such as AB3D-EF4G-HJ5K. It works once, for 72 hours."
+          hint="Twelve letters and numbers, such as AB3D-EF4G-HJ5K. It is good for 72 hours, until set-up is finished."
           autoComplete="off"
           autoCapitalize="characters"
           spellCheck={false}
