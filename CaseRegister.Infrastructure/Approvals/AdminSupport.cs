@@ -1,7 +1,10 @@
+using System.Security.Claims;
+using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Identity;
 using CaseRegister.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -73,6 +76,28 @@ internal static class AdminCensus
     }
 }
 
+/// <summary>
+/// One admin can take access away at once (suspend an account or an agency) ten times in any rolling 24 hours. Past that, it has to be
+/// proposed and confirmed by a second admin. Ending sessions is exempt: in an incident it has to be possible at once, however often.
+/// </summary>
+internal static class ImmediateActionLimit
+{
+    public const int PerDay = 10;
+    public const string Marker = "immediate;";
+    public const string Code = "ImmediateLimit";
+
+    public static async Task<bool> ReachedAsync(AppDbContext db, Guid actorId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var since = now - TimeSpan.FromHours(24);
+        var used = await db.AuditLog.CountAsync(
+            record => record.ActorUserId == actorId && record.OccurredAt > since && record.Detail != null && record.Detail.StartsWith(Marker)
+                && (record.Action == nameof(CaseRegister.Application.Auditing.AuditAction.UserSuspended) || record.Action == nameof(CaseRegister.Application.Auditing.AuditAction.AgencySuspended)),
+            cancellationToken);
+
+        return used >= PerDay;
+    }
+}
+
 internal static class SessionEnding
 {
     /// <summary>
@@ -83,6 +108,32 @@ internal static class SessionEnding
     {
         Ensure(await users.UpdateSecurityStampAsync(user));
         await db.Sessions.Where(session => session.UserId == user.Id).ExecuteDeleteAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// For somebody who has just changed something about their own security (their password, their recovery codes): their security stamp has
+    /// been rotated, so this session is re-issued on the new stamp (keeping its public id and how it was signed in), and every other session
+    /// of theirs is deleted at once rather than at its next stamp check. A session that does not carry its id (one from before this was
+    /// kept) is still re-issued; the others then end at their next stamp check.
+    /// </summary>
+    public static async Task ReissueAndEndOthersAsync(SignInManager<ApplicationUser> signInManager, AppDbContext db, ApplicationUser user, CancellationToken cancellationToken)
+    {
+        var auth = await signInManager.Context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+        List<Claim> carried = [];
+        foreach (var type in new[] { AuthenticationClaims.Amr, AuthenticationClaims.SessionId })
+        {
+            if (auth.Principal?.FindFirst(type) is { } claim)
+            {
+                carried.Add(new Claim(claim.Type, claim.Value));
+            }
+        }
+
+        await signInManager.SignInWithClaimsAsync(user, auth.Properties, carried);
+
+        if (Guid.TryParse(auth.Principal?.FindFirstValue(AuthenticationClaims.SessionId), out var current))
+        {
+            await db.Sessions.Where(session => session.UserId == user.Id && session.Id != current).ExecuteDeleteAsync(cancellationToken);
+        }
     }
 
     public static void Ensure(IdentityResult result)

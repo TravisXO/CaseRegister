@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using CaseRegister.Api.Contracts;
 using CaseRegister.Application.Accounts;
+using CaseRegister.Application.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,7 +18,7 @@ namespace CaseRegister.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
-public sealed class MeController(IMemberProfileService profiles, IPractisingCertificateService certificates) : ControllerBase
+public sealed class MeController(IMemberProfileService profiles, IPractisingCertificateService certificates, IAccountSecurity security) : ControllerBase
 {
     [HttpGet]
     [Authorize]
@@ -25,6 +26,7 @@ public sealed class MeController(IMemberProfileService profiles, IPractisingCert
     public async Task<IActionResult> Profile(CancellationToken cancellationToken)
     {
         var profile = await profiles.GetAsync(CurrentUserId(), cancellationToken);
+        var summary = await security.GetAsync(CurrentUserId(), cancellationToken);
 
         return profile is null
             ? NotFound()
@@ -36,7 +38,10 @@ public sealed class MeController(IMemberProfileService profiles, IPractisingCert
                 profile.MembershipClass?.ToString(),
                 profile.AgencyId is { } agencyId ? new AgencyReference(agencyId, profile.AgencyName ?? string.Empty, profile.AgencyActive) : null,
                 profile.Roles,
-                profile.HasCurrentPractisingCertificate));
+                profile.HasCurrentPractisingCertificate,
+                summary.LastSignIn is { } last ? new PreviousSignIn(last.At, last.Country, last.City) : null,
+                summary.RecoveryCodesRemaining,
+                summary.RecoveryCodesRemaining <= RecoveryCodeAdvice.WarnAtOrBelow));
     }
 
     [HttpGet("practising-certificates")]

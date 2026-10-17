@@ -28,6 +28,9 @@ export const agent: Profile = {
   agency: { id: "22222222-2222-4222-8222-222222222222", name: "Kafue Properties", isActive: true },
   roles: ["RegisteredAgent"],
   hasCurrentPractisingCertificate: true,
+  lastSignIn: null,
+  recoveryCodesRemaining: 10,
+  recoveryCodesLow: false,
 };
 
 export const admin: Profile = {
@@ -39,6 +42,9 @@ export const admin: Profile = {
   agency: null,
   roles: ["Admin"],
   hasCurrentPractisingCertificate: false,
+  lastSignIn: null,
+  recoveryCodesRemaining: 10,
+  recoveryCodesLow: false,
 };
 
 export const problem = (status: number, title: string, detail?: string, extra: Record<string, unknown> = {}) =>

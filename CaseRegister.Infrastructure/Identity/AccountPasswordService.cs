@@ -1,5 +1,8 @@
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
+using CaseRegister.Application.Notifications;
+using CaseRegister.Infrastructure.Approvals;
+using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 
 namespace CaseRegister.Infrastructure.Identity;
@@ -10,6 +13,9 @@ internal sealed class AccountPasswordService(
     CredentialChecker credentials,
     SignInThrottle throttle,
     ITwoFactorService twoFactor,
+    AppDbContext db,
+    INotificationService notifications,
+    IClientLocationAccessor location,
     IAuditLog audit) : IAccountPasswordService
 {
     private const string IncorrectCurrentPassword = "The current password is incorrect.";
@@ -69,9 +75,11 @@ internal sealed class AccountPasswordService(
             return ChangePasswordResult.Failure([.. changed.Errors.Select(error => error.Description)]);
         }
 
-        // The stamp changed, so this session would be signed out too. Re-issue its cookie on the new stamp.
-        await signInManager.RefreshSignInAsync(user);
+        // The stamp changed, so every session would fail its next check; the other ones are also deleted now, because the check only runs every few
+        // minutes. This session is re-issued on the new stamp and carries on.
+        await SessionEnding.ReissueAndEndOthersAsync(signInManager, db, user, cancellationToken);
         await audit.WriteAsync(new AuditEntry(AuditAction.PasswordChanged, user.Id, IpAddress: remoteIpAddress), cancellationToken);
+        await notifications.NotifyAsync([NotificationFactory.PasswordChanged(user.Id, Guid.CreateVersion7(), location.Current)], cancellationToken);
 
         return ChangePasswordResult.Success;
     }

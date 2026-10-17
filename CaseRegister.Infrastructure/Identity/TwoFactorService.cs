@@ -3,7 +3,9 @@ using System.Security.Cryptography;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
 using CaseRegister.Application.Notifications;
+using CaseRegister.Infrastructure.Approvals;
 using CaseRegister.Infrastructure.Auditing;
+using CaseRegister.Infrastructure.Notifications;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -20,6 +22,8 @@ internal sealed class TwoFactorService(
     TwoFactorAttemptLimiter limiter,
     SignInThrottle throttle,
     INotificationService notifications,
+    SignInHistory history,
+    IClientLocationAccessor location,
     IAuditLog audit,
     Microsoft.Extensions.Logging.ILogger<TwoFactorService> logger,
     TimeProvider timeProvider) : ITwoFactorService
@@ -115,6 +119,7 @@ internal sealed class TwoFactorService(
         // The session was restricted to enrolment. Now it has passed a second factor, so it is upgraded.
         await UpgradeSessionAsync(user);
         await throttle.RecordFullSignInAsync(userId, remoteIpAddress, cancellationToken);
+        await history.RecordAsync(userId, cancellationToken);
         await notifications.EnsureTimeBasedAsync(userId, cancellationToken);
 
         return new TwoFactorResult(TwoFactorOutcome.Succeeded, RecoveryCodes: codes);
@@ -150,6 +155,14 @@ internal sealed class TwoFactorService(
         var check = await CheckAsync(user, record, code, remoteIpAddress, allowRecoveryCode: true, enableOnSuccess: false, cancellationToken);
         if (check.Outcome != TwoFactorOutcome.Succeeded)
         {
+            if (check.Outcome == TwoFactorOutcome.Failed)
+            {
+                // The password was right and the code was not: the person is told, once for each ten minutes, so a run of wrong codes is one notice.
+                await notifications.NotifyAsync(
+                    [NotificationFactory.WrongSecondFactor(userId, NotificationWindow.For(userId, timeProvider.GetUtcNow(), TimeSpan.FromMinutes(10)), location.Current)],
+                    cancellationToken);
+            }
+
             return new TwoFactorResult(check.Outcome, check.RetryAfter);
         }
 
@@ -171,6 +184,7 @@ internal sealed class TwoFactorService(
 
         // Fully signed in: the counters start again, and the notifications that depend on the date are made now (there is no scheduler).
         await throttle.RecordFullSignInAsync(userId, remoteIpAddress, cancellationToken);
+        await history.RecordAsync(userId, cancellationToken);
         await notifications.EnsureTimeBasedAsync(userId, cancellationToken);
 
         return new TwoFactorResult(TwoFactorOutcome.Succeeded);
@@ -303,10 +317,16 @@ internal sealed class TwoFactorService(
         var codes = await CreateRecoveryCodesAsync(userId, cancellationToken);
         await audit.WriteAsync(new AuditEntry(AuditAction.RecoveryCodesRegenerated, userId, IpAddress: remoteIpAddress), cancellationToken);
 
+        // New codes mean something may be wrong: every other session ends, and this one carries on with a new security stamp.
+        await users.UpdateSecurityStampAsync(user);
+        await SessionEnding.ReissueAndEndOthersAsync(signInManager, db, user, cancellationToken);
+        await notifications.NotifyAsync([NotificationFactory.RecoveryCodesRegenerated(userId, Guid.CreateVersion7(), location.Current)], cancellationToken);
+
         return new TwoFactorResult(TwoFactorOutcome.Succeeded, RecoveryCodes: codes);
     }
 
     // --- Internals ---------------------------------------------------------------------------
+
 
     private async Task<Check> CheckAsync(
         ApplicationUser user,
@@ -366,6 +386,15 @@ internal sealed class TwoFactorService(
             await audit.WriteAsync(
                 new AuditEntry(AuditAction.RecoveryCodeUsed, user.Id, IpAddress: remoteIpAddress),
                 cancellationToken);
+
+            var remaining = await db.RecoveryCodes.CountAsync(r => r.UserId == user.Id && r.UsedAt == null && r.RevokedAt == null, cancellationToken);
+            List<NewNotification> notices = [NotificationFactory.RecoveryCodeUsed(user.Id, Guid.CreateVersion7(), location.Current, remaining)];
+            if (remaining <= RecoveryCodeAdvice.WarnAtOrBelow)
+            {
+                notices.Add(NotificationFactory.RecoveryCodesLow(user.Id, remaining, remaining.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            }
+
+            await notifications.NotifyAsync(notices, cancellationToken);
         }
 
         return new Check(TwoFactorOutcome.Succeeded, UsedRecoveryCode: usedRecoveryCode);

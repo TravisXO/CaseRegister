@@ -31,6 +31,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<EnrolmentCodeRecord> EnrolmentCodes => Set<EnrolmentCodeRecord>();
 
+    public DbSet<SignInHistoryEntry> SignInHistory => Set<SignInHistoryEntry>();
+
+    public DbSet<AuditReadMarker> AuditReadMarkers => Set<AuditReadMarker>();
+
     public DbSet<UserSession> Sessions => Set<UserSession>();
 
     public DbSet<Agency> Agencies => Set<Agency>();

@@ -57,6 +57,7 @@ public enum AuditAction
     // Hardening: notifications, lockout, recovery and break-glass.
     NotificationAcknowledged,
     EnrolmentCodeUsed,
+    ListViewed,
     BreakGlassUsed,
     BreakGlassRefused,
 }

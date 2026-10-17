@@ -20,6 +20,7 @@ internal sealed class AccountAdministrationService(
     AppDbContext db,
     IEnumerable<IAdminOperation> operations,
     NotificationDispatcher notifications,
+    TimeProvider time,
     IAuditLog audit) : IAccountAdministrationService
 {
     private readonly Dictionary<PendingActionType, IAdminOperation> _operations = operations.ToDictionary(operation => operation.Type);
@@ -81,6 +82,14 @@ internal sealed class AccountAdministrationService(
                 [new ApprovalViolation("NeedsTwoAdmins", "The target is an admin, so this needs a second admin to confirm it. Propose it instead.")]);
         }
 
+        // Ten at once in a rolling day is the most one admin gets; after that it is a proposal. Ending sessions is never held back.
+        if (type != PendingActionType.EndSessions && await ImmediateActionLimit.ReachedAsync(db, actorId, time.GetUtcNow(), cancellationToken))
+        {
+            return new AdminActionResult(
+                AdminActionOutcome.LimitReached,
+                [new ApprovalViolation(ImmediateActionLimit.Code, $"You have already done {ImmediateActionLimit.PerDay} immediate removals in the last 24 hours. Propose this one instead; a second admin confirms it.")]);
+        }
+
         AdminActionResult? result = null;
         OperationContext context = null!;
         var strategy = db.Database.CreateExecutionStrategy();
@@ -110,7 +119,7 @@ internal sealed class AccountAdministrationService(
                     actorId,
                     Subject: plan.EffectSubject ?? (userId ?? agencyId)!.Value.ToString(),
                     IpAddress: remoteIpAddress,
-                    Detail: AuditText.Fit($"immediate; before: {plan.Before}; after: {plan.After}; reason: {reason.Trim()}"),
+                    Detail: AuditText.Fit($"{ImmediateActionLimit.Marker} before: {plan.Before}; after: {plan.After}; reason: {reason.Trim()}"),
                     Before: new { state = plan.Before },
                     After: new { state = plan.After }),
                 cancellationToken);

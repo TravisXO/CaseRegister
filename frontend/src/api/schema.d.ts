@@ -118,6 +118,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    search?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PersonResponse"][];
+                        "application/json": components["schemas"]["PersonResponse"][];
+                        "text/json": components["schemas"]["PersonResponse"][];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/pending-actions": {
         parameters: {
             query?: never;
@@ -4134,6 +4250,20 @@ export interface components {
         PendingActionStatus: "Pending" | "Confirmed" | "Rejected" | "Withdrawn" | "Expired";
         /** @enum {unknown} */
         PendingActionType: "AssignRole" | "RemoveRole" | "VerifyPractisingCertificate" | "ReactivateUser" | "ReactivateAgency" | "ResetTwoFactor" | "ApproveApplication" | "RejectApplication" | "InviteStaff" | "SuspendUser" | "EndSessions" | "SuspendAgency";
+        PersonResponse: {
+            /** Format: uuid */
+            id: string;
+            fullName: string;
+            email: string;
+            status: string;
+            roles: string[];
+        };
+        PreviousSignIn: {
+            /** Format: date-time */
+            at: string;
+            country: string | null;
+            city: string | null;
+        };
         ProbeBody: {
             name: string;
             /** Format: int32 */
@@ -4157,6 +4287,10 @@ export interface components {
             agency: (null) | components["schemas"]["AgencyReference"];
             roles: string[];
             hasCurrentPractisingCertificate: boolean;
+            lastSignIn: (null) | components["schemas"]["PreviousSignIn"];
+            /** Format: int32 */
+            recoveryCodesRemaining: number;
+            recoveryCodesLow: boolean;
         };
         ProposalPerson: {
             /** Format: uuid */

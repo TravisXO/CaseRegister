@@ -140,3 +140,27 @@ public sealed class UserSession : Entity
 
     public string? UserAgent { get; private set; }
 }
+
+/// <summary>
+/// One successful full sign-in (password and second factor), as a place: country and city only, never an address and never coordinates.
+/// It is what "Last signed in" and "a new location" are worked out from. Kept, not deleted.
+/// </summary>
+public sealed class SignInHistoryEntry : Entity
+{
+    public SignInHistoryEntry()
+    {
+    }
+
+    public SignInHistoryEntry(Guid userId, string? country, string? city)
+    {
+        UserId = userId;
+        Country = country;
+        City = city;
+    }
+
+    public Guid UserId { get; private set; }
+
+    public string? Country { get; private set; }
+
+    public string? City { get; private set; }
+}

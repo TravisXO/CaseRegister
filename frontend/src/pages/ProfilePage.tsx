@@ -3,6 +3,7 @@ import { api } from "../api/endpoints";
 import type { CertificateInfo } from "../api/types";
 import { ErrorSummary } from "../components/ErrorSummary";
 import { PasswordField, SubmitButton, TextField } from "../components/Fields";
+import { ShownOnce } from "../components/ShownOnce";
 import { Empty, Loaded } from "../components/States";
 import { useSession } from "../auth/session";
 import { errorFor, problemsFrom, required, type Problems } from "../lib/forms";
@@ -169,6 +170,78 @@ function ChangePassword() {
   );
 }
 
+/** Recovery codes: how many are left, a warning at two or fewer, and new ones (after a fresh authenticator code). The old ones then stop working. */
+function RecoveryCodes({ remaining, low }: { remaining: number; low: boolean }) {
+  const { refresh } = useSession();
+  const [code, setCode] = useState("");
+  const [problems, setProblems] = useState<Problems>({ problems: [] });
+  const [codes, setCodes] = useState<string[] | null>(null);
+
+  const make = useSubmit(async () => {
+    const mistakes = required(code, "recovery-code", "Enter a code from your authenticator app.");
+    if (mistakes.length > 0) {
+      setProblems({ problems: mistakes });
+
+      return;
+    }
+
+    try {
+      const result = await api.regenerateRecoveryCodes(code.trim());
+      setCode("");
+      setProblems({ problems: [] });
+      setCodes(result.recoveryCodes);
+    } catch (error) {
+      setCode("");
+      setProblems(problemsFrom(error));
+    }
+  });
+
+  const onMake = (event: SyntheticEvent) => {
+    event.preventDefault();
+    void make.run();
+  };
+
+  if (codes !== null) {
+    return (
+      <section aria-labelledby="recovery-title">
+        <ShownOnce
+          title="Your new recovery codes"
+          lines={codes}
+          fileName="caseregister-recovery-codes.txt"
+          instructions="The old codes no longer work, and you were signed out of your other sessions. Keep these somewhere safe, apart from your phone."
+          doneLabel="I have saved them"
+          onDone={() => {
+            setCodes(null);
+            void refresh();
+          }}
+        />
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="recovery-title">
+      <h2 id="recovery-title" className="subheading">
+        Recovery codes
+      </h2>
+      <p className={low ? "alert-warning" : "mb-4"} role={low ? "alert" : undefined}>
+        {low
+          ? `You have ${String(remaining)} recovery code${remaining === 1 ? "" : "s"} left. Make new ones now, before you run out.`
+          : `You have ${String(remaining)} recovery codes left.`}
+      </p>
+      <ErrorSummary problems={problems.problems} traceId={problems.traceId} />
+      <form onSubmit={onMake} noValidate>
+        <TextField id="recovery-code" label="Authenticator code, to make new recovery codes" hint="Making new codes ends your other sessions." autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => { setCode(event.target.value); }} error={errorFor(problems.problems, "recovery-code")} />
+        <SubmitButton pending={make.pending}>Make new recovery codes</SubmitButton>
+      </form>
+    </section>
+  );
+}
+
+function place(country: string | null | undefined, city: string | null | undefined): string {
+  return [city, country].filter((part): part is string => typeof part === "string" && part !== "").join(", ");
+}
+
 export function ProfilePage() {
   const { state } = useSession();
   if (state.status !== "ready") {
@@ -204,8 +277,15 @@ export function ProfilePage() {
         )}
         <dt className="font-medium">Roles</dt>
         <dd>{profile.roles.length === 0 ? "None yet" : profile.roles.join(", ")}</dd>
+        <dt className="font-medium">Last signed in</dt>
+        <dd>
+          {profile.lastSignIn === null
+            ? "This is your first sign-in."
+            : `${formatZambianTime(profile.lastSignIn.at)}${place(profile.lastSignIn.country, profile.lastSignIn.city) === "" ? "" : `, ${place(profile.lastSignIn.country, profile.lastSignIn.city)}`}`}
+        </dd>
       </dl>
       <Certificates profileIsMember={profile.membershipNumber !== null} />
+      <RecoveryCodes remaining={profile.recoveryCodesRemaining} low={profile.recoveryCodesLow} />
       <ChangePassword />
     </div>
   );

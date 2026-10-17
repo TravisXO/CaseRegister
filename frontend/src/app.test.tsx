@@ -185,7 +185,7 @@ describe("the menu", () => {
   it("offers an admin the admin pages as well", async () => {
     await showFor(admin);
 
-    expect(links()).toEqual(["My profile", "My sessions", "Applications", "Proposals", "Invite staff", "Account actions", "Audit log"]);
+    expect(links()).toEqual(["My profile", "My sessions", "Applications", "Proposals", "Invite staff", "Account actions", "Admins", "Audit log"]);
   });
 
   it("offers a compliance officer the audit log and no admin actions", async () => {

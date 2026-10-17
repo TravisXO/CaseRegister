@@ -153,6 +153,7 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("POST", "api/auth/staff-setup/complete", "anonymous"),
             new("GET", "api/admin/applications", "ViewApplications"),
             new("GET", "api/admin/admins", "ViewPendingActions"),
+            new("GET", "api/admin/people", "ViewPendingActions"),
             new("GET", "api/audit/entries", "ReadAuditLog"),
             new("POST", "api/audit/verify", "VerifyAuditLog"),
 

@@ -142,3 +142,15 @@ internal sealed partial class NotificationDispatcher(INotificationService notifi
     [LoggerMessage(Level = LogLevel.Error, Message = "Telling people about an action failed. The action itself was not affected.")]
     private static partial void LogFailed(ILogger logger, Exception exception);
 }
+
+/// <summary>A stable id for "this person, this ten minutes", so a run of the same event makes one notification and not one each.</summary>
+internal static class NotificationWindow
+{
+    public static Guid For(Guid userId, DateTimeOffset now, TimeSpan length)
+    {
+        var bucket = now.ToUnixTimeSeconds() / (long)length.TotalSeconds;
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{userId:N}|{bucket}"));
+
+        return new Guid(hash.AsSpan(0, 16));
+    }
+}

@@ -114,7 +114,7 @@ public class ProfileTests(PostgresFixture postgres)
         var profile = await ProfileOfAsync(factory, member);
 
         Assert.Equal(
-            ["agency", "email", "fullName", "hasCurrentPractisingCertificate", "id", "membershipClass", "membershipNumber", "roles"],
+            ["agency", "email", "fullName", "hasCurrentPractisingCertificate", "id", "lastSignIn", "membershipClass", "membershipNumber", "recoveryCodesLow", "recoveryCodesRemaining", "roles"],
             profile.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
     }
 

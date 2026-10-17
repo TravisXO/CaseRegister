@@ -97,7 +97,7 @@ internal static class OperationProblems
 }
 
 /// <summary>Give or take away one role, through <see cref="IRoleAssignmentService"/>'s rules.</summary>
-internal sealed class RoleChangeOperation(PendingActionType type, RoleAssignmentService roles, AppDbContext db) : IAdminOperation
+internal sealed class RoleChangeOperation(PendingActionType type, RoleAssignmentService roles, AppDbContext db, UserManager<ApplicationUser> users) : IAdminOperation
 {
     public PendingActionType Type { get; } = type;
 
@@ -142,6 +142,10 @@ internal sealed class RoleChangeOperation(PendingActionType type, RoleAssignment
             async token =>
             {
                 await roles.ApplyAsync(plan, token);
+
+                // Their access has changed, so they sign in again to get the new one: a new security stamp and no sessions left.
+                SessionEnding.Ensure(await users.UpdateSecurityStampAsync(plan.User));
+                await db.Sessions.Where(session => session.UserId == plan.User.Id).ExecuteDeleteAsync(token);
                 context.Output.Intents.Add(new RolesChangedIntent(context.EventId, plan.User.Id));
             });
     }

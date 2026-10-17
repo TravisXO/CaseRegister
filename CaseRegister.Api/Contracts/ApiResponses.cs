@@ -37,7 +37,13 @@ public sealed record ProfileResponse(
     string? MembershipClass,
     AgencyReference? Agency,
     IReadOnlyList<string> Roles,
-    bool HasCurrentPractisingCertificate);
+    bool HasCurrentPractisingCertificate,
+    PreviousSignIn? LastSignIn,
+    int RecoveryCodesRemaining,
+    bool RecoveryCodesLow);
+
+/// <summary>An earlier sign-in: when, and the country and city it came from. Never an address.</summary>
+public sealed record PreviousSignIn(DateTimeOffset At, string? Country, string? City);
 
 public sealed record ProposalTarget(Guid? UserId, Guid? AgencyId, string? Email, string? Name);
 
@@ -67,6 +73,8 @@ public sealed record PendingActionResponse(
     ProposalRefusal? LastRefusal,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SetupLink = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EnrolmentCode = null);
+
+public sealed record PersonResponse(Guid Id, string FullName, string Email, string Status, IReadOnlyList<string> Roles);
 
 public sealed record AdminSummaryResponse(Guid Id, string FullName, bool IsActive, bool TwoFactorOn);
 

@@ -773,6 +773,26 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                     b.ToTable("audit_log", (string)null);
                 });
 
+            modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.AuditReadMarker", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("Key")
+                        .HasName("pk_audit_read_markers");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_audit_read_markers_created_at");
+
+                    b.ToTable("audit_read_markers", (string)null);
+                });
+
             modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.AuthenticatorRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1009,6 +1029,49 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_sign_in_failures_user_id_kind_created_at");
 
                     b.ToTable("sign_in_failures", (string)null);
+                });
+
+            modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.SignInHistoryEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("city");
+
+                    b.Property<string>("Country")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("country");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sign_in_history");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_sign_in_history_user_id_created_at");
+
+                    b.ToTable("sign_in_history", (string)null);
                 });
 
             modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.SignInLockout", b =>
@@ -1480,6 +1543,16 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_sign_in_failures_users_user_id");
+                });
+
+            modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.SignInHistoryEntry", b =>
+                {
+                    b.HasOne("CaseRegister.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sign_in_history_users_user_id");
                 });
 
             modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.SignInLockout", b =>

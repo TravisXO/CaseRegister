@@ -145,6 +145,9 @@ public static class DependencyInjection
         services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = TokenLifespan);
 
         services.AddScoped<SignInThrottle>();
+        services.AddScoped<IAuditReadLog, AuditReadLog>();
+        services.AddScoped<SignInHistory>();
+        services.AddScoped<IAccountSecurity>(provider => provider.GetRequiredService<SignInHistory>());
         services.AddScoped<DummyPasswordVerifier>();
         services.AddScoped<ISignInService, SignInService>();
         services.AddScoped<IAccountPasswordService, AccountPasswordService>();
@@ -224,8 +227,8 @@ public static class DependencyInjection
     private static void AddAdminApprovals(IServiceCollection services)
     {
         // One operation per kind of admin action. The engine and the immediate actions find them by type.
-        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.AssignRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>()));
-        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.RemoveRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>()));
+        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.AssignRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>(), provider.GetRequiredService<UserManager<ApplicationUser>>()));
+        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.RemoveRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>(), provider.GetRequiredService<UserManager<ApplicationUser>>()));
         services.AddScoped<IAdminOperation, VerifyCertificateOperation>();
         services.AddScoped<IAdminOperation, ReactivateUserOperation>();
         services.AddScoped<IAdminOperation, ReactivateAgencyOperation>();

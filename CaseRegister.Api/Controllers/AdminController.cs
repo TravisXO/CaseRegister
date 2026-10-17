@@ -30,6 +30,7 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     /// <summary>Who the admins are, and whether there are enough of them: the list warns while there are fewer than three active ones.</summary>
     [HttpGet("admins")]
     [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [AuditListView("admins")]
     [ProducesResponseType<AdminListResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Admins(CancellationToken cancellationToken)
     {
@@ -43,11 +44,21 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
             listing.ActiveCount < listing.Recommended));
     }
 
+    /// <summary>Finds accounts by name or email (three characters at least), so an admin can name the right one. Each search is audited.</summary>
+    [HttpGet("people")]
+    [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [AuditListView("people")]
+    [ProducesResponseType<IReadOnlyList<PersonResponse>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> People([FromQuery] string? search, CancellationToken cancellationToken) =>
+        Ok((await directory.FindPeopleAsync(search ?? string.Empty, cancellationToken))
+            .Select(person => new PersonResponse(person.UserId, person.FullName, person.Email, person.Status, person.Roles)));
+
     // --- Proposals that need a second admin ----------------------------------------------------
 
     /// <summary>Proposals still waiting, with their expiry worked out. <c>includeClosed</c> adds decided and lapsed ones.</summary>
     [HttpGet("pending-actions")]
     [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [AuditListView("proposals")]
     [ProducesResponseType<IReadOnlyList<PendingActionResponse>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] bool includeClosed, CancellationToken cancellationToken) =>
         Ok((await approvals.ListAsync(includeClosed, cancellationToken)).Select(Shape));
@@ -123,6 +134,7 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
     /// </summary>
     [HttpGet("applications")]
     [Authorize(Policy = nameof(Capability.ViewApplications))]
+    [AuditListView("applications")]
     [ProducesResponseType<IReadOnlyList<ApplicationView>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Applications(CancellationToken cancellationToken) =>
         Ok(await applications.ListPendingAsync(cancellationToken));
@@ -167,6 +179,7 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
         AdminActionOutcome.Invalid => Fail(StatusCodes.Status400BadRequest, "A reason is needed", "Give a reason of 10 to 500 characters."),
         AdminActionOutcome.NotAllowed => Fail(StatusCodes.Status403Forbidden, "Not allowed", "You cannot act on yourself.", result.Problems),
         AdminActionOutcome.NeedsTwoAdmins => Fail(StatusCodes.Status403Forbidden, "Needs a second admin", "The target is an admin, so this has to be proposed and confirmed by a different admin.", result.Problems),
+        AdminActionOutcome.LimitReached => Fail(StatusCodes.Status422UnprocessableEntity, "Limit reached", "You have used your immediate removals for now. Propose this instead; a second admin confirms it.", result.Problems),
         AdminActionOutcome.Refused => Fail(StatusCodes.Status422UnprocessableEntity, "Not possible now", "A rule does not allow this in the current situation.", result.Problems),
         _ => Forbid(),
     };

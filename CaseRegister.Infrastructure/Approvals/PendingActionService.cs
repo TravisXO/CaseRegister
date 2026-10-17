@@ -65,7 +65,8 @@ internal sealed partial class PendingActionService(
 
         // Granting needs two admins whoever the target is; taking away needs two only when the target is an admin.
         var targetIsAdmin = command.TargetUserId is { } userId && await AdminCensus.HoldsAdminRoleAsync(db, userId, cancellationToken);
-        if (!ApprovalRules.RequiresTwoAdmins(command.Type, targetIsAdmin))
+        if (!ApprovalRules.RequiresTwoAdmins(command.Type, targetIsAdmin)
+            && !(command.Type != PendingActionType.EndSessions && await ImmediateActionLimit.ReachedAsync(db, proposer.Id, time.GetUtcNow(), cancellationToken)))
         {
             return new ProposeResult(ProposeOutcome.NoApprovalNeeded);
         }

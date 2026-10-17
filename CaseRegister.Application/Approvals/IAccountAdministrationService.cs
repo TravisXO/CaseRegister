@@ -17,6 +17,9 @@ public enum AdminActionOutcome
     /// <summary>The target is an admin, so this needs a second admin: propose it instead.</summary>
     NeedsTwoAdmins,
 
+    /// <summary>The admin has already taken access away at once ten times in 24 hours: propose it instead, so a second admin confirms.</summary>
+    LimitReached,
+
     /// <summary>A rule about the current state forbids it (already suspended, or it would leave fewer than two active admins).</summary>
     Refused,
 }

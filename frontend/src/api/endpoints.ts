@@ -2,6 +2,7 @@ import { request } from "./client";
 import type {
   ApplicationView,
   AdminList,
+  Person,
   AuditPage,
   AuditVerification,
   CertificateInfo,
@@ -23,6 +24,7 @@ export const api = {
   signUp: (body: Schemas["SignUpCommand"]) => request<Schemas["MessageResponse"]>("POST", "/api/auth/sign-up", { body, ...credentialsCall }),
   signIn: (body: Schemas["SignInCommand"]) => request<Schemas["StatusResponse"]>("POST", "/api/auth/sign-in", { body, ...credentialsCall }),
   verifyTwoFactor: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/verify", { body: { code }, ...credentialsCall }),
+  regenerateRecoveryCodes: (code: string) => request<Schemas["RecoveryCodesResponse"]>("POST", "/api/auth/2fa/recovery-codes", { body: { code } }),
   redeemEnrolmentCode: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/enrolment-code", { body: { code }, ...credentialsCall }),
   signOut: () => request<undefined>("POST", "/api/auth/sign-out", { unauthorised: "report" }),
   session: () => request<SessionResponse>("GET", "/api/auth/session", { unauthorised: "report" }),
@@ -48,6 +50,7 @@ export const api = {
   acknowledgeNotification: (id: string) => request<undefined>("POST", `/api/notifications/${encodeURIComponent(id)}/acknowledge`),
 
   // --- Admin ---
+  people: (search: string) => request<Person[]>("GET", `/api/admin/people?search=${encodeURIComponent(search)}`),
   admins: () => request<AdminList>("GET", "/api/admin/admins"),
   applications: () => request<ApplicationView[]>("GET", "/api/admin/applications"),
   pendingActions: () => request<PendingAction[]>("GET", "/api/admin/pending-actions"),
