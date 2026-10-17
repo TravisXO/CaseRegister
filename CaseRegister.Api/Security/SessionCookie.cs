@@ -183,6 +183,14 @@ public static class SessionCookie
         return Task.CompletedTask;
     }
 
+    /// <summary>When the 8-hour limit of this session falls, or null if the ticket does not say when it began.</summary>
+    public static DateTimeOffset? EndsAt(AuthenticationProperties? properties) =>
+        properties is not null
+        && properties.Items.TryGetValue(SignedInAtKey, out var raw)
+        && long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+            ? DateTimeOffset.FromUnixTimeSeconds(seconds) + AbsoluteLimit
+            : null;
+
     // However active the user has been, nobody stays signed in for more than the absolute limit.
     // A ticket with no sign-in time is refused.
     private static bool AbsoluteLimitReached(CookieValidatePrincipalContext context)

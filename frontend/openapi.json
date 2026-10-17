@@ -6657,6 +6657,16 @@
           },
           "twoFactorComplete": {
             "type": "boolean"
+          },
+          "sessionEndsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "idleTimeoutSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
           }
         }
       },

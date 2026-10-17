@@ -193,6 +193,22 @@ public sealed class SecurityNoticeTests(PostgresFixture postgres)
         Assert.Equal(2, (await world.NoticesFor(world.Person, NotificationType.SecurityWrongSecondFactor)).Count);
     }
 
+    // --- The session tells the page when it ends ---------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_session_says_when_the_eight_hour_limit_falls_and_how_long_idle_lasts()
+    {
+        await using var world = await WorldAsync();
+        var client = await world.SignInAsync(world.Person);
+        world.Factory.Clock.Advance(TimeSpan.FromMinutes(20)); // activity does not move the hard limit
+
+        var session = await (await client.GetAsync("/api/auth/session")).Content.ReadFromJsonAsync<JsonElement>();
+
+        var ends = session.GetProperty("sessionEndsAt").GetDateTimeOffset();
+        Assert.InRange((ends - (world.Factory.Clock.GetUtcNow() - TimeSpan.FromMinutes(20) + TimeSpan.FromHours(8))).TotalSeconds, -5, 5);
+        Assert.Equal(1800, session.GetProperty("idleTimeoutSeconds").GetInt32());
+    }
+
     // --- Where from ---------------------------------------------------------------------------------------------------------
 
     [Fact]

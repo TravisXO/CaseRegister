@@ -4347,6 +4347,13 @@ export interface components {
         SessionResponse: {
             userId: string | null;
             twoFactorComplete: boolean;
+            /** Format: date-time */
+            sessionEndsAt?: string | null;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            idleTimeoutSeconds: number;
         };
         SignInCommand: {
             email: string;

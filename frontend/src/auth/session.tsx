@@ -18,6 +18,8 @@ interface SessionContextValue {
   /** After a successful sign-in or enrolment: fetches a fresh anti-forgery token and loads who is signed in. */
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** The session is over (its idle or 8-hour limit passed): the page lets go of everything it holds, without asking the API. */
+  endLocally: () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -78,7 +80,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ state, refresh, signOut }), [state, refresh, signOut]);
+  const endLocally = useCallback(() => {
+    forgetCsrfToken();
+    setState({ status: "signed-out", notice: "session-ended" });
+  }, []);
+
+  const value = useMemo(() => ({ state, refresh, signOut, endLocally }), [state, refresh, signOut, endLocally]);
 
   return <SessionContext value={value}>{children}</SessionContext>;
 }

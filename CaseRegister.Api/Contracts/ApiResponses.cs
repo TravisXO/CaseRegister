@@ -13,7 +13,9 @@ public sealed record CsrfResponse(string Token);
 /// <param name="Status">"two-factor-required" or "two-factor-enrolment-required" after the password; "signed-in" after the code.</param>
 public sealed record StatusResponse(string Status);
 
-public sealed record SessionResponse(string? UserId, bool TwoFactorComplete);
+/// <param name="SessionEndsAt">The hard 8-hour limit: however active the person is, the session cannot be extended past this.</param>
+/// <param name="IdleTimeoutSeconds">How long without a request ends the session (30 minutes). Any request restarts it.</param>
+public sealed record SessionResponse(string? UserId, bool TwoFactorComplete, DateTimeOffset? SessionEndsAt = null, int IdleTimeoutSeconds = 0);
 
 /// <param name="OtpAuthUri">For the QR code.</param>
 /// <param name="SharedKey">The same key in base32, to type in by hand.</param>

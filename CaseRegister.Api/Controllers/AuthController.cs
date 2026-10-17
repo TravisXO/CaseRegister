@@ -4,6 +4,8 @@ using System.Security.Claims;
 using CaseRegister.Api.Security;
 using CaseRegister.Application.Auth;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -114,9 +116,16 @@ public sealed class AuthController(
     [HttpGet("session")]
     [Authorize(Policy = AuthorizationPolicies.SignedIn)]
     [ProducesResponseType<SessionResponse>(StatusCodes.Status200OK)]
-    public IActionResult Session() => Ok(new SessionResponse(
-        User.FindFirstValue(ClaimTypes.NameIdentifier),
-        User.HasClaim(AuthenticationClaims.Amr, AuthenticationClaims.AmrMultiFactor)));
+    public async Task<IActionResult> Session()
+    {
+        var ticket = await HttpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+
+        return Ok(new SessionResponse(
+            User.FindFirstValue(ClaimTypes.NameIdentifier),
+            User.HasClaim(AuthenticationClaims.Amr, AuthenticationClaims.AmrMultiFactor),
+            SessionCookie.EndsAt(ticket.Properties),
+            (int)SessionCookie.IdleTimeout.TotalSeconds));
+    }
 
     // --- Two-factor enrolment ----------------------------------------------------------------
 

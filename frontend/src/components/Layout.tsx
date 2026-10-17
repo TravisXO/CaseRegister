@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { describeError } from "../api/client";
 import type { Profile, Role } from "../api/types";
+import { SessionTimeout } from "../auth/SessionTimeout";
 import { hasRole, useSession } from "../auth/session";
 import { useNotifications } from "../notifications/notifications";
 import { DemoNotice } from "./DemoNotice";
@@ -100,6 +101,7 @@ export function Layout() {
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <DemoNotice />
+      <SessionTimeout />
       {/* Said aloud politely when the person has just done something with a notification. It is never changed by the page moving on. */}
       <div role="status" aria-live="polite" className="sr-only">
         {announcement}

@@ -214,6 +214,13 @@ describe("the source", () => {
     expect(found).toEqual([]);
   });
 
+  it("has timers in one place only: the session timeout warning, and never a repeating one", () => {
+    const withTimers = files.filter((file) => /\b(setTimeout|setInterval)\b/.test(readFileSync(file, "utf8")));
+
+    expect(withTimers.map((file) => relative("src", file).replaceAll("\\", "/"))).toEqual(["auth/SessionTimeout.tsx"]);
+    expect(readFileSync("src/auth/SessionTimeout.tsx", "utf8")).not.toMatch(/setInterval/);
+  });
+
   it("never touches the browser's storage while the app is used", async () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     const getItem = vi.spyOn(Storage.prototype, "getItem");
