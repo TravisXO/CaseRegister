@@ -164,6 +164,7 @@ public static class DependencyInjection
 
         // Sessions live in Postgres. The cookie handler is pointed at this store by the Api project.
         services.AddHttpContextAccessor();
+        services.AddSingleton<IClientLocationAccessor, ClientLocationAccessor>();
         services.AddSingleton<ITicketStore, DatabaseTicketStore>();
     }
 

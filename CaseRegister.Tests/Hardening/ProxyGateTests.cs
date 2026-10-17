@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CaseRegister.Api.Security;
+using CaseRegister.Application.Auth;
 using CaseRegister.Tests.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -270,6 +271,98 @@ public sealed class ProxyGateTests(ProductionApp app) : IClassFixture<Production
 
         Assert.Equal(HttpStatusCode.TooManyRequests, tooMany.StatusCode);
         Assert.Equal(HttpStatusCode.OK, someoneElse.StatusCode);
+    }
+
+    // --- The visitor's city and country ---------------------------------------------------------------------------
+
+    private static async Task<(string? Country, string? City)> GeoSeenAsync(HttpClient client, params (string Name, string Value)[] headers)
+    {
+        using var response = await SendAsync(client, HttpMethod.Get, "/probe/geo", headers);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        return (body.GetProperty("country").GetString(), body.GetProperty("city").GetString());
+    }
+
+    [Fact]
+    public async Task On_a_request_that_passed_the_gate_the_city_and_country_are_the_ones_the_proxy_sent()
+    {
+        using var client = Bare();
+
+        Assert.Equal(("ZM", "Lusaka"), await GeoSeenAsync(client, (ApiFactory.ProxyHeader, Secret), (ClientLocation.HeaderName, "ZM|Lusaka")));
+        Assert.Equal(("BR", "São Paulo"), await GeoSeenAsync(client, (ApiFactory.ProxyHeader, Secret), (ClientLocation.HeaderName, "BR|S%C3%A3o%20Paulo")));
+        Assert.Equal(("ZM", null), await GeoSeenAsync(client, (ApiFactory.ProxyHeader, Secret), (ClientLocation.HeaderName, "ZM|")));
+    }
+
+    [Fact]
+    public async Task Without_the_secret_a_spoofed_place_is_never_read_the_request_is_refused()
+    {
+        using var client = Bare();
+
+        using var response = await SendAsync(client, HttpMethod.Get, "/probe/geo", (ClientLocation.HeaderName, "RU|Moscow"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.DoesNotContain("Moscow", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task With_a_wrong_secret_a_spoofed_place_is_refused_too()
+    {
+        using var client = Bare();
+
+        using var response = await SendAsync(client, HttpMethod.Get, "/probe/geo", (ApiFactory.ProxyHeader, "x" + Secret), (ClientLocation.HeaderName, "RU|Moscow"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Z")]
+    [InlineData("ZMB|Lusaka")]
+    [InlineData("zm|Lusaka")]
+    [InlineData("12|Lusaka")]
+    [InlineData("|Lusaka")]
+    [InlineData("Lusaka")]
+    [InlineData("<script>|x")]
+    public async Task A_place_that_is_not_a_clean_country_and_city_is_ignored(string sent)
+    {
+        using var client = Bare();
+
+        Assert.Equal((null, null), await GeoSeenAsync(client, (ApiFactory.ProxyHeader, Secret), (ClientLocation.HeaderName, sent)));
+    }
+
+    [Fact]
+    public async Task Control_characters_and_undecodable_bytes_in_the_city_are_dropped_and_a_long_city_is_cut()
+    {
+        using var client = Bare();
+
+        Assert.Equal(("ZM", "Lusaka"), await GeoSeenAsync(client, (ApiFactory.ProxyHeader, Secret), (ClientLocation.HeaderName, "ZM|Lu%00sa%0D%0Aka")));
+        Assert.Equal(("ZM", null), await GeoSeenAsync(client, (ApiFactory.ProxyHeader, Secret), (ClientLocation.HeaderName, "ZM|%FF%FE")));
+        Assert.Equal(("ZM", new string('a', ClientLocation.MaxCityLength)), await GeoSeenAsync(client, (ApiFactory.ProxyHeader, Secret), (ClientLocation.HeaderName, "ZM|" + new string('a', 300))));
+    }
+
+    [Fact]
+    public async Task Two_place_headers_are_ignored_rather_than_picking_one()
+    {
+        using var client = Bare();
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("/probe/geo", UriKind.Relative));
+        request.Headers.Add(ApiFactory.ProxyHeader, Secret);
+        request.Headers.Add(ClientLocation.HeaderName, ["ZM|Lusaka", "RU|Moscow"]);
+
+        using var response = await client.SendAsync(request);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("country").ValueKind);
+    }
+
+    [Fact]
+    public async Task Where_there_is_no_proxy_secret_at_all_the_place_header_is_not_believed_either()
+    {
+        using var factory = ApiFactory.WithoutDatabase(); // the gate is off here: nothing vouches for the header
+        using var client = factory.Server.CreateClient();
+        client.BaseAddress = new Uri("https://localhost");
+
+        Assert.Equal((null, null), await GeoSeenAsync(client, (ClientLocation.HeaderName, "RU|Moscow")));
     }
 
     // --- What gets logged ------------------------------------------------------------------------------------

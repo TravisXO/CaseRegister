@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using CaseRegister.Api.Hardening;
+using CaseRegister.Application.Auth;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -102,6 +103,7 @@ public sealed partial class ProxyGateMiddleware : IMiddleware
         if (sent.Count == 1 && sent[0] is { Length: > 0 } secret && Accepts(Hash(secret)))
         {
             UseClientAddress(context);
+            UseClientLocation(context);
 
             return next(context);
         }
@@ -126,6 +128,16 @@ public sealed partial class ProxyGateMiddleware : IMiddleware
         if (sent.Count == 1 && sent[0] is { Length: > 0 and <= 45 } text && text.AsSpan().IndexOfAny('.', ':') >= 0 && IPAddress.TryParse(text, out var address))
         {
             context.Connection.RemoteIpAddress = address;
+        }
+    }
+
+    /// <summary>The city and country the proxy sent, kept for the rest of the request. Only ever read here, after the secret was accepted.</summary>
+    private static void UseClientLocation(HttpContext context)
+    {
+        var sent = context.Request.Headers[ClientLocation.HeaderName];
+        if (sent.Count == 1 && ClientLocation.Parse(sent[0]) is { } location)
+        {
+            context.Items[ClientLocation.ItemKey] = location;
         }
     }
 

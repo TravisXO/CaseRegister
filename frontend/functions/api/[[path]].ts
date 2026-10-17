@@ -6,6 +6,9 @@
  *    (including their own copies of the secret header, X-Forwarded-For and CF-Connecting-IP) is never passed on.
  *  - The visitor's address comes from CF-Connecting-IP, which only Cloudflare's edge sets, and goes to the API in X-Client-Ip. The API believes
  *    it only on a request that carries the secret.
+ *  - The visitor's city and country come from request.cf (Cloudflare's own lookup, so no database and no dependency here) and go to the API
+ *    in X-Client-Geo, trusted by the API on the same terms as X-Client-Ip. Only the two-letter country and the city name are read: the
+ *    coordinates that request.cf also holds are never touched.
  *  - Set-Cookie comes back untouched, so the __Host- cookies work.
  *  - The body is capped, the call has a timeout, and no body, cookie or secret is ever logged. (There is no logging here at all.)
  *  - It answers only on the production hostname, so a preview deployment of this site cannot reach the production API.
@@ -34,7 +37,9 @@ export const MAX_BODY_BYTES = 64 * 1024;
 export const DEFAULT_TIMEOUT_MS = 75_000;
 export const SECRET_HEADER = "X-Proxy-Secret";
 export const CLIENT_IP_HEADER = "X-Client-Ip";
+export const CLIENT_GEO_HEADER = "X-Client-Geo";
 const MIN_SECRET_LENGTH = 32;
+const MAX_CITY_LENGTH = 100;
 
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const METHODS_ALLOWED = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
@@ -50,6 +55,28 @@ function problem(status: number, title: string): Response {
     status,
     headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" },
   });
+}
+
+/** What Cloudflare knows about where a request came from. Only the two fields below are ever read. */
+interface CloudflareRequest extends Request {
+  cf?: { country?: unknown; city?: unknown };
+}
+
+/**
+ * "ZM|Lusaka": the two-letter country, a bar, and the city with percent-encoding (a city name can hold any letters). Null when Cloudflare gave
+ * no usable country. The city is left out if it is missing or absurdly long. Nothing else about the place is sent: no region, no postcode,
+ * no coordinates.
+ */
+export function geoOf(request: Request): string | null {
+  const cf = (request as CloudflareRequest).cf;
+  const country = typeof cf?.country === "string" ? cf.country.toUpperCase() : "";
+  if (!/^[A-Z]{2}$/.test(country)) {
+    return null;
+  }
+
+  const city = typeof cf?.city === "string" ? cf.city.trim() : "";
+
+  return `${country}|${city.length > 0 && city.length <= MAX_CITY_LENGTH ? encodeURIComponent(city) : ""}`;
 }
 
 /** The API origin, or null if it is not an https address with no path (so a mistake in the setting cannot send requests somewhere else). */
@@ -146,6 +173,11 @@ export async function handle(request: Request, env: ProxyEnv): Promise<Response>
   const visitor = request.headers.get("CF-Connecting-IP");
   if (visitor !== null && visitor !== "") {
     headers.set(CLIENT_IP_HEADER, visitor);
+  }
+
+  const geo = geoOf(request);
+  if (geo !== null) {
+    headers.set(CLIENT_GEO_HEADER, geo);
   }
 
   let body: Uint8Array<ArrayBuffer> | undefined;
