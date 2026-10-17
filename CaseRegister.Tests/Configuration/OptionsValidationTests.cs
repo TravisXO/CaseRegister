@@ -11,7 +11,7 @@ public sealed class OptionsValidationTests
     // Every options class in the solution. A new one has to be added here, which means it has to be validated.
     private static readonly string[] _expectedOptionsClasses =
     [
-        "AuditOptions", "DatabaseOptions", "ExternalCallOptions", "MembershipOptions", "ProxyOptions", "RateLimitingOptions", "StaffInviteOptions", "TurnstileOptions", "TwoFactorOptions",
+        "AuditOptions", "DatabaseOptions", "DeploymentOptions", "ExternalCallOptions", "MembershipOptions", "ProxyOptions", "RateLimitingOptions", "StaffInviteOptions", "TurnstileOptions", "TwoFactorOptions",
     ];
 
     [Fact]
@@ -40,6 +40,9 @@ public sealed class OptionsValidationTests
     [InlineData("Audit:Keys:k1", "dG9vLXNob3J0LXNlY3JldC1rZXk=", "Audit:Keys:k1", "dG9vLXNob3J0")]
     [InlineData("Membership:DisplayPrefix", "9secret9", "Membership:DisplayPrefix", "9secret9")]
     [InlineData("Invites:SetupPageUrl", "ftp://secret-host-4412.example/setup", "Invites:SetupPageUrl", "secret-host-4412")]
+    [InlineData("Deployment:Mode", "Production", "Deployment:Mode", null)]
+    [InlineData("Deployment:Mode", "demo", "Deployment:Mode", null)]
+    [InlineData("Deployment:Mode", " ", "Deployment:Mode", null)]
     [InlineData("RateLimiting:GlobalPerIpPerMinute", "0", "RateLimiting:GlobalPerIpPerMinute", null)]
     [InlineData("RateLimiting:SignInPerIpPerMinute", "-3", "RateLimiting:SignInPerIpPerMinute", null)]
     [InlineData("RateLimiting:SignInPerAccountPerHour", "0", "RateLimiting:SignInPerAccountPerHour", null)]

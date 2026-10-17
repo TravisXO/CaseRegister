@@ -36,6 +36,12 @@ public sealed class ProbeController : ControllerBase
     [AllowAnonymous]
     public IActionResult Ip() => Ok(new { ip = HttpContext.Connection.RemoteIpAddress?.ToString() });
 
+    /// <summary>The place the proxy said the request came from, as the application sees it.</summary>
+    [HttpGet("geo")]
+    [AllowAnonymous]
+    public IActionResult Geo([FromServices] CaseRegister.Application.Auth.IClientLocationAccessor location) =>
+        Ok(new { country = location.Current?.Country, city = location.Current?.City });
+
     [HttpGet("members-only")]
     [Authorize]
     public IActionResult MembersOnly() => Ok();

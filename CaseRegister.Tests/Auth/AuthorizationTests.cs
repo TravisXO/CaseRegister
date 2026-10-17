@@ -140,8 +140,10 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("POST", "api/auth/2fa/enrol/confirm", "SignedIn"),
             new("POST", "api/auth/2fa/recovery-codes", "two-factor"),
             new("POST", "api/auth/2fa/verify", "anonymous"),
+            new("POST", "api/auth/2fa/enrolment-code", "anonymous"),
             new("POST", "api/auth/change-password", "two-factor"),
             new("GET", "api/auth/csrf", "anonymous"),
+            new("GET", "api/deployment", "anonymous"),
             new("GET", "api/auth/session", "SignedIn"),
             new("GET", "api/auth/sessions", "two-factor"),
             new("DELETE", "api/auth/sessions/{id:guid}", "two-factor"),
@@ -151,6 +153,8 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("POST", "api/auth/staff-setup/start", "anonymous"),
             new("POST", "api/auth/staff-setup/complete", "anonymous"),
             new("GET", "api/admin/applications", "ViewApplications"),
+            new("GET", "api/admin/admins", "LookUpPeople"),
+            new("GET", "api/admin/people", "LookUpPeople"),
             new("GET", "api/audit/entries", "ReadAuditLog"),
             new("POST", "api/audit/verify", "VerifyAuditLog"),
 
@@ -168,13 +172,19 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("GET", "api/me", "two-factor"),
             new("GET", "api/me/practising-certificates", "two-factor"),
             new("POST", "api/me/practising-certificates", "two-factor"),
+
+            // Everyone signed in with two factors has an inbox; each notification is checked against its owner.
+            new("GET", "api/notifications", "two-factor"),
+            new("POST", "api/notifications/{id:guid}/acknowledge", "two-factor"),
+            new("POST", "api/notifications/{id:guid}/read", "two-factor"),
+            new("POST", "api/notifications/read-all", "two-factor"),
         }.OrderBy(rule => rule.Route).ThenBy(rule => rule.Method).ToList();
 
         Assert.Equal(expected, endpoints);
 
         // The only endpoints open to anyone are those that have to be: a token, the two sign-in steps, applying, and the two steps of staff setup.
         Assert.Equal(
-            ["api/auth/2fa/verify", "api/auth/csrf", "api/auth/sign-in", "api/auth/sign-up", "api/auth/staff-setup/complete", "api/auth/staff-setup/start"],
+            ["api/auth/2fa/enrolment-code", "api/auth/2fa/verify", "api/auth/csrf", "api/auth/sign-in", "api/auth/sign-up", "api/auth/staff-setup/complete", "api/auth/staff-setup/start", "api/deployment"],
             endpoints.Where(rule => rule.Rule == "anonymous").Select(rule => rule.Route).Order(StringComparer.Ordinal));
     }
 }

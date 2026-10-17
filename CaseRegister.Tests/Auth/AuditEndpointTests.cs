@@ -260,8 +260,8 @@ public class AuditEndpointTests(PostgresFixture postgres)
         await admin.SendAsync(HttpMethod.Get, "/api/audit/entries?action=RecordViewed&pageSize=3", forwardedFor: "203.0.113.66");
         Assert.Equal(before + 1, await world.Count("AuditLogRead"));
         await admin.GetAsync("/api/audit/entries");
-        await admin.GetAsync("/api/audit/entries?page=2");
-        Assert.Equal(before + 3, await world.Count("AuditLogRead"));
+        await admin.GetAsync("/api/audit/entries?page=2"); // paging is the same view: one entry for each person and filter in ten minutes
+        Assert.Equal(before + 2, await world.Count("AuditLogRead"));
 
         var entry = (await world.Factory.AuditEntriesAsync()).First(record => record.Action == "AuditLogRead" && record.Detail!.Contains("action RecordViewed", StringComparison.Ordinal));
         Assert.Equal(world.Admin.Id, entry.ActorUserId);

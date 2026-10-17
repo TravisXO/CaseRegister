@@ -45,7 +45,7 @@ export function ProposalsPage() {
   );
 }
 
-function ConfirmForm({ action, onChanged, onLink }: { action: PendingAction; onChanged: (notice: string | null) => void; onLink: (link: string) => void }) {
+function ConfirmForm({ action, onChanged, onLink, onEnrolmentCode }: { action: PendingAction; onChanged: (notice: string | null) => void; onLink: (link: string) => void; onEnrolmentCode: (code: string) => void }) {
   const [code, setCode] = useState("");
   const [problems, setProblems] = useState<Problems>({ problems: [] });
 
@@ -63,6 +63,10 @@ function ConfirmForm({ action, onChanged, onLink }: { action: PendingAction; onC
       setCode("");
       if (typeof confirmed.setupLink === "string") {
         onLink(confirmed.setupLink);
+      }
+
+      if (typeof confirmed.enrolmentCode === "string") {
+        onEnrolmentCode(confirmed.enrolmentCode);
       }
 
       onChanged(null);
@@ -135,6 +139,7 @@ export function ProposalPage() {
   const { state: session } = useSession();
   const { state, reload } = useLoad(() => api.pendingAction(id), [id]);
   const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [enrolmentCode, setEnrolmentCode] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const myId = session.status === "ready" ? session.profile.id : null;
@@ -170,6 +175,20 @@ export function ProposalPage() {
                 />
               </div>
             )}
+            {enrolmentCode === null ? null : (
+              <div className="mt-4">
+                <ShownOnce
+                  title="One-time enrolment code"
+                  lines={[enrolmentCode]}
+                  fileName="caseregister-enrolment-code.txt"
+                  instructions="Give this code to the person in person or by phone, never in writing. They need it with their password to set up two-factor again. It is good for 72 hours, until set-up is finished."
+                  doneLabel="I have given it to them"
+                  onDone={() => {
+                    setEnrolmentCode(null);
+                  }}
+                />
+              </div>
+            )}
             {action.status !== "Pending" ? (
               <p className="mt-4" role="status">
                 This proposal is no longer waiting: it is {action.status.toLowerCase()}.
@@ -195,6 +214,7 @@ export function ProposalPage() {
                     reload();
                   }}
                   onLink={setSetupLink}
+                  onEnrolmentCode={setEnrolmentCode}
                 />
                 <ReasonForm
                   title="Or reject it"

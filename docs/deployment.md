@@ -28,6 +28,7 @@ Every secret is an environment variable. None is in `render.yaml` (it asks for e
 | `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey` | Render | The R2 bucket for the audit anchors and an API token that can reach that one bucket. Step 3. | Make a new token; the anchors in the bucket are not affected. |
 | `Turnstile__SecretKey` | Render | Turnstile's secret key for the production site. Step 5. | Rotate it in the Turnstile dashboard. |
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Pages (production; read at build time) | Turnstile's **public** site key. Not a secret: it is built into the page. Never put a secret in a `VITE_` variable. | Copy it from the Turnstile dashboard. |
+| `Deployment__Mode` | Render (already in `render.yaml`) | `Demo`, the only value allowed for now. The API refuses to start with anything else (or with nothing), and the pages show the demo notice because of it. It has no default on purpose. | Set it to `Demo`. |
 | `Invites__SetupPageUrl` | Render | `https://<your Pages hostname>/staff/setup`. Where a staff invite link points. | Set it again. |
 | `API_ORIGIN`, `PRODUCTION_HOSTNAME` | Cloudflare Pages (production) | The API's address (`https://<service>.onrender.com`) and the one hostname the site answers `/api` on. Not secrets. | Set them again. |
 | `ASPNETCORE_ENVIRONMENT` | Render (already in `render.yaml`) | `Production`. | |
@@ -159,7 +160,7 @@ What each command needs in its environment (set with `$env:Name = Ask 'Name'`):
 | Command | Variables |
 | --- | --- |
 | `migrate` | `ConnectionStrings__Migrations` |
-| `seed-admin`, `anchor-audit`, `verify-audit` | `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
+| `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
 
 The variables are only in that window. Environment variables beat user-secrets, so the development values are never used while they are set, and each command prints the database host and name before it does anything, so you can see it is the production one.
 
@@ -294,6 +295,22 @@ dotnet run --project CaseRegister.Api --configuration Release --no-launch-profil
 ```
 
 It prints how many entries it checked and how many anchors it looked at, and either "The audit chain is intact." or where it is broken. The same check is the **Verify chain** button on the audit page. To write an anchor by hand: `-- anchor-audit`.
+
+## Break-glass commands
+
+For when the normal two-admin process cannot work. Both run from your machine in the same environment as `seed-admin`, ask for everything at the keyboard (nothing on the command line), print the database host and name first, and need the person's email typed twice and a reason of at least 30 characters.
+
+```powershell
+dotnet run --project CaseRegister.Api --configuration Release --no-launch-profile -- reset-two-factor
+dotnet run --project CaseRegister.Api --configuration Release --no-launch-profile -- suspend-admin
+```
+
+- **`reset-two-factor`** is for a lost phone when no second admin can confirm (for example an admin, with only two admins). It removes the person's authenticator and recovery codes, signs them out everywhere and prints a one-time enrolment code, **once**. Give it to the person in person or by phone; they need it, with their password, at their next sign-in. It lasts 72 hours and is used up when they finish setting up two-factor; if they abandon set-up they can come back with the same code. Wrong tries count towards the ten-wrong-codes limit.
+- **`suspend-admin`** suspends an admin even if that leaves fewer than two active admins. It is the only way below the floor of two.
+- Both refuse if the audit key configured here is not the one that signed the latest audit entry (the wrong keys are in this window), if the migrations are behind, or if a break-glass action was already run on that person in the last 24 hours.
+- Both write the audit log (`BreakGlassUsed`, with the reason, and the ordinary entry for what was done) and send a **critical** notification to every admin and to the person, which each has to acknowledge.
+
+After a `suspend-admin` that leaves fewer than two admins, use `seed-admin` (it works while fewer than two active admins exist) or the normal approval process to add more.
 
 ## Free-tier limits worth knowing
 

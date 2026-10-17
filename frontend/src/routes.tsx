@@ -5,11 +5,15 @@ import { Layout } from "./components/Layout";
 import { ErrorBoundary, Loading } from "./components/States";
 import { ActionsPage } from "./pages/admin/ActionsPage";
 import { ApplicationsPage } from "./pages/admin/ApplicationsPage";
+import { AdminsPage } from "./pages/admin/AdminsPage";
 import { AuditPage } from "./pages/admin/AuditPage";
 import { InviteStaffPage } from "./pages/admin/InviteStaffPage";
 import { ProposalPage, ProposalsPage } from "./pages/admin/ProposalsPage";
+import { EnrolmentCodePage } from "./pages/EnrolmentCodePage";
 import { EnrolPage } from "./pages/EnrolPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
+import { NotificationsProvider } from "./notifications/notifications";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SignInPage } from "./pages/SignInPage";
@@ -30,7 +34,9 @@ function Root() {
   return (
     <ErrorBoundary>
       <SessionProvider>
-        <Outlet />
+        <NotificationsProvider>
+          <Outlet />
+        </NotificationsProvider>
       </SessionProvider>
     </ErrorBoundary>
   );
@@ -46,6 +52,7 @@ export const routes: RouteObject[] = [
           { index: true, element: <Home /> },
           { path: "sign-in", element: <SignInPage /> },
           { path: "sign-in/code", element: <TwoFactorCodePage /> },
+          { path: "sign-in/enrolment-code", element: <EnrolmentCodePage /> },
           { path: "sign-up", element: <SignUpPage /> },
           { path: "staff/setup", element: <StaffSetupPage /> },
           { path: "two-factor/set-up", element: <EnrolPage /> },
@@ -54,6 +61,7 @@ export const routes: RouteObject[] = [
             children: [
               { path: "profile", element: <ProfilePage /> },
               { path: "sessions", element: <SessionsPage /> },
+              { path: "notifications", element: <NotificationsPage /> },
               {
                 element: <RequireRole roles={["Admin"]} />,
                 children: [
@@ -62,6 +70,7 @@ export const routes: RouteObject[] = [
                   { path: "admin/proposals/:id", element: <ProposalPage /> },
                   { path: "admin/invite", element: <InviteStaffPage /> },
                   { path: "admin/actions", element: <ActionsPage /> },
+                  { path: "admin/admins", element: <AdminsPage /> },
                 ],
               },
               {

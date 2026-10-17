@@ -150,6 +150,7 @@ public sealed class StartupConfigurationTests : IDisposable
     [InlineData("Audit:R2:AccessKeyId")]
     [InlineData("Audit:R2:SecretAccessKey")]
     [InlineData("Invites:SetupPageUrl")]
+    [InlineData("Deployment:Mode")]
     public void Production_will_not_start_without_each_setting_it_needs_and_names_the_setting_never_a_value(string setting)
     {
         using var factory = ApiFactory.WithoutDatabase(settings => settings.Remove(setting), environmentName: "Production");

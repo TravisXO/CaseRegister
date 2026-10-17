@@ -78,6 +78,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             // Cloudflare's published test secret: it accepts every token. The verifier itself is replaced below.
             ["Turnstile:SecretKey"] = TurnstileTestSecret,
 
+            // The only deployment mode there is.
+            ["Deployment:Mode"] = "Demo",
+
             // A neutral test prefix, so no test depends on the real default.
             ["Membership:DisplayPrefix"] = "AGT",
 

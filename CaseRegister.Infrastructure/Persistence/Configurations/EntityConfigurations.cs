@@ -124,6 +124,45 @@ internal sealed class RecoveryCodeRecordConfiguration : IEntityTypeConfiguration
     }
 }
 
+internal sealed class EnrolmentCodeRecordConfiguration : IEntityTypeConfiguration<EnrolmentCodeRecord>
+{
+    public void Configure(EntityTypeBuilder<EnrolmentCodeRecord> builder)
+    {
+        builder.ToTable("enrolment_codes");
+
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(record => record.UserId).OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(record => record.CodeHash).HasMaxLength(64).IsRequired();
+        builder.HasIndex(record => new { record.UserId, record.CodeHash }).IsUnique();
+    }
+}
+
+internal sealed class SignInHistoryEntryConfiguration : IEntityTypeConfiguration<SignInHistoryEntry>
+{
+    public void Configure(EntityTypeBuilder<SignInHistoryEntry> builder)
+    {
+        builder.ToTable("sign_in_history");
+
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(entry => entry.UserId).OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(entry => entry.Country).HasMaxLength(2);
+        builder.Property(entry => entry.City).HasMaxLength(100);
+        builder.HasIndex(entry => new { entry.UserId, entry.CreatedAt });
+    }
+}
+
+internal sealed class AuditReadMarkerConfiguration : IEntityTypeConfiguration<AuditReadMarker>
+{
+    public void Configure(EntityTypeBuilder<AuditReadMarker> builder)
+    {
+        builder.ToTable("audit_read_markers");
+        builder.HasKey(marker => marker.Key);
+        builder.Property(marker => marker.Key).HasMaxLength(64);
+        builder.Property(marker => marker.CreatedAt).HasColumnType("timestamp with time zone");
+        builder.HasIndex(marker => marker.CreatedAt);
+    }
+}
+
 internal sealed class UserSessionConfiguration : IEntityTypeConfiguration<UserSession>
 {
     public void Configure(EntityTypeBuilder<UserSession> builder)

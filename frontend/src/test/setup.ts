@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { forgetCsrfToken, onSessionEnded } from "../api/client";
-import { server } from "./server";
+import { server, unhandledRequests } from "./server";
 
 vi.stubEnv("VITE_TURNSTILE_SITE_KEY", "test-site-key");
 
@@ -15,7 +15,13 @@ globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) =>
   nodeFetch(typeof input === "string" && input.startsWith("/") ? new URL(input, window.location.href) : input, init);
 
 beforeAll(() => {
-  server.listen({ onUnhandledFrame: "error" });
+  // "error" refuses the request; the callback also writes it down so the test that made it fails (see afterEach), even if the app hid the failure.
+  server.listen({
+    onUnhandledFrame: async ({ frame, defaults }) => {
+      unhandledRequests.push(await frame.getUnhandledMessage());
+      defaults.error();
+    },
+  });
 });
 
 beforeEach(() => {
@@ -34,6 +40,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  const missed = unhandledRequests.splice(0);
+  if (missed.length > 0) {
+    throw new Error(`The app made requests the test did not answer. Add a handler for each (in the test, or in test/server.ts if every test needs it): ${missed.join("; ")}`);
+  }
+
   cleanup();
   server.resetHandlers();
   forgetCsrfToken();

@@ -170,7 +170,7 @@ public class RecoveryCodeFlowTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Five_wrong_recovery_codes_lock_the_account_like_five_wrong_authenticator_codes()
+    public async Task Wrong_recovery_codes_count_as_wrong_codes_but_never_lock_the_recovery_codes_themselves()
     {
         await using var enrolled = await EnrolledAsync();
         var client = await TwoFactorFlows.AtTheCodeStepAsync(enrolled.Factory, enrolled.User);
@@ -180,8 +180,9 @@ public class RecoveryCodeFlowTests(PostgresFixture postgres)
             await client.VerifyTwoFactorAsync($"AAAA-BBBB-CCCC-DD{i + 2}{i + 3}");
         }
 
-        Assert.Equal(1, await enrolled.Factory.WithDbAsync(db => db.LockoutEvents.CountAsync()));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.VerifyTwoFactorAsync(enrolled.Codes[0])).StatusCode);
+        Assert.Equal(5, await enrolled.Factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null && f.Kind == CaseRegister.Infrastructure.Persistence.FailureKind.SecondFactor)));
+        Assert.Equal(0, await enrolled.Factory.WithDbAsync(db => db.SignInLockouts.CountAsync()));
+        Assert.Equal(HttpStatusCode.OK, (await client.VerifyTwoFactorAsync(enrolled.Codes[0])).StatusCode);
     }
 
     [Fact]

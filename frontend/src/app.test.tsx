@@ -185,7 +185,7 @@ describe("the menu", () => {
   it("offers an admin the admin pages as well", async () => {
     await showFor(admin);
 
-    expect(links()).toEqual(["My profile", "My sessions", "Applications", "Proposals", "Invite staff", "Account actions", "Audit log"]);
+    expect(links()).toEqual(["My profile", "My sessions", "Applications", "Proposals", "Invite staff", "Account actions", "Admins", "Audit log"]);
   });
 
   it("offers a compliance officer the audit log and no admin actions", async () => {
@@ -228,7 +228,7 @@ describe("what is limited, and how to fix it", () => {
     renderApp("/profile");
 
     await screen.findByRole("heading", { name: "My profile" });
-    await waitFor(() => { expect(screen.queryByRole("status")).not.toBeInTheDocument(); });
+    await waitFor(() => { expect(screen.queryByText(/practising certificate/i)).not.toBeInTheDocument(); });
   });
 
   it("says nothing to an agent in good standing", async () => {

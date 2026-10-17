@@ -63,13 +63,13 @@ public sealed class TwoFactorAttemptLimiter : IDisposable
 }
 
 /// <summary>
-/// Checks a password and, when it is wrong, counts the failure towards lockout. A right password does
-/// NOT reset the count: for an account with two-factor that happens only once the second factor has
-/// passed, so someone with a stolen password cannot keep clearing the counter while guessing codes.
+/// Checks a password and, when it is wrong, counts the failure against the account and the address it came from (see
+/// <see cref="SignInThrottle"/>). A right password does NOT reset the counters: that happens only once the second factor has passed too,
+/// so someone with a stolen password cannot keep clearing them while guessing codes.
 /// </summary>
 internal sealed class CredentialChecker(
     Microsoft.AspNetCore.Identity.UserManager<ApplicationUser> users,
-    LockoutTracker lockouts)
+    SignInThrottle throttle)
 {
     public async Task<bool> VerifyPasswordAsync(ApplicationUser user, string password, string? ipAddress, CancellationToken cancellationToken)
     {
@@ -78,19 +78,8 @@ internal sealed class CredentialChecker(
             return true;
         }
 
-        await RegisterFailureAsync(user, ipAddress, cancellationToken);
+        await throttle.RecordPasswordFailureAsync(user, ipAddress, cancellationToken);
 
         return false;
-    }
-
-    /// <summary>Counts one failed attempt. The account was not locked before it, so a lockout now was caused by it.</summary>
-    public async Task RegisterFailureAsync(ApplicationUser user, string? ipAddress, CancellationToken cancellationToken)
-    {
-        await users.AccessFailedAsync(user);
-
-        if (await users.IsLockedOutAsync(user))
-        {
-            await lockouts.RecordLockoutAsync(user, ipAddress, cancellationToken);
-        }
     }
 }

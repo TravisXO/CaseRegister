@@ -86,10 +86,19 @@ export interface RequestOptions {
 let csrfToken: string | null = null;
 let csrfRequest: Promise<string> | null = null;
 let sessionEndedHandler: (() => void) | null = null;
+let successHandler: (() => void) | null = null;
 
 /** Called when the API says the session is no longer there. The session provider sets this. */
 export function onSessionEnded(handler: (() => void) | null): void {
   sessionEndedHandler = handler;
+}
+
+/**
+ * Called after every successful answer from the API. The session timeout warning uses it to restart its clocks: an answer means the person is
+ * active and the server has restarted its idle timer. It is told nothing about the answer.
+ */
+export function onApiSuccess(handler: (() => void) | null): void {
+  successHandler = handler;
 }
 
 /** Drops the anti-forgery token. A new one is fetched with the next request that needs it. */
@@ -159,6 +168,8 @@ async function send(method: string, path: string, options: RequestOptions, retri
   }
 
   if (response.ok) {
+    successHandler?.();
+
     return response;
   }
 

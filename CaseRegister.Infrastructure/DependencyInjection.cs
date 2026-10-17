@@ -3,11 +3,13 @@ using CaseRegister.Application.Applications;
 using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
+using CaseRegister.Application.Notifications;
 using CaseRegister.Infrastructure.Approvals;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Auditing;
 using CaseRegister.Infrastructure.Identity;
 using CaseRegister.Infrastructure.KeyProtection;
+using CaseRegister.Infrastructure.Notifications;
 using CaseRegister.Infrastructure.Persistence;
 using CaseRegister.Infrastructure.Seeding;
 using CaseRegister.Infrastructure.Security;
@@ -81,6 +83,10 @@ public static class DependencyInjection
     private static void AddMembership(IServiceCollection services)
     {
         // The display prefix has no default in code: it comes from configuration and a bad value stops startup.
+        services.AddOptions<DeploymentOptions>()
+            .Configure<IConfiguration>((options, configuration) => options.Mode = configuration[DeploymentOptions.ModeKey])
+            .Validate(options => DeploymentOptions.IsValid(options.Mode), DeploymentOptions.Problem)
+            .ValidateOnStart();
         services.AddOptions<MembershipOptions>()
             .Configure<IConfiguration>((options, configuration) =>
                 options.DisplayPrefix = configuration[MembershipOptions.DisplayPrefixKey] ?? string.Empty)
@@ -110,10 +116,11 @@ public static class DependencyInjection
                 options.Password.RequireLowercase = false;
                 options.Password.RequireNonAlphanumeric = false;
 
-                // Default lockout is 5 minutes. Same attempt count and same "new users can be locked out" as the default.
+                // Identity's own lockout is switched off: it locked an account for everyone whoever was guessing, which let a stranger shut an
+                // admin out. Lockout is per account and address instead (SignInThrottle), and nothing calls AccessFailedAsync.
+                options.Lockout.AllowedForNewUsers = false; // Default: true.
                 options.Lockout.MaxFailedAccessAttempts = MaxFailedAccessAttempts;
                 options.Lockout.DefaultLockoutTimeSpan = LockoutDuration;
-                options.Lockout.AllowedForNewUsers = true;
 
                 // Only Approved accounts sign in, decided by ApprovedAccountConfirmation. Default: false.
                 // There is no email or phone confirmation step.
@@ -141,7 +148,10 @@ public static class DependencyInjection
         // Default: 1 day. Password reset and similar tokens are short-lived.
         services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = TokenLifespan);
 
-        services.AddScoped<LockoutTracker>();
+        services.AddScoped<SignInThrottle>();
+        services.AddScoped<IAuditReadLog, AuditReadLog>();
+        services.AddScoped<SignInHistory>();
+        services.AddScoped<IAccountSecurity>(provider => provider.GetRequiredService<SignInHistory>());
         services.AddScoped<DummyPasswordVerifier>();
         services.AddScoped<ISignInService, SignInService>();
         services.AddScoped<IAccountPasswordService, AccountPasswordService>();
@@ -164,6 +174,7 @@ public static class DependencyInjection
 
         // Sessions live in Postgres. The cookie handler is pointed at this store by the Api project.
         services.AddHttpContextAccessor();
+        services.AddSingleton<IClientLocationAccessor, ClientLocationAccessor>();
         services.AddSingleton<ITicketStore, DatabaseTicketStore>();
     }
 
@@ -220,8 +231,8 @@ public static class DependencyInjection
     private static void AddAdminApprovals(IServiceCollection services)
     {
         // One operation per kind of admin action. The engine and the immediate actions find them by type.
-        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.AssignRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>()));
-        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.RemoveRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>()));
+        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.AssignRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>(), provider.GetRequiredService<UserManager<ApplicationUser>>()));
+        services.AddScoped<IAdminOperation>(provider => new RoleChangeOperation(PendingActionType.RemoveRole, provider.GetRequiredService<RoleAssignmentService>(), provider.GetRequiredService<AppDbContext>(), provider.GetRequiredService<UserManager<ApplicationUser>>()));
         services.AddScoped<IAdminOperation, VerifyCertificateOperation>();
         services.AddScoped<IAdminOperation, ReactivateUserOperation>();
         services.AddScoped<IAdminOperation, ReactivateAgencyOperation>();
@@ -249,10 +260,22 @@ public static class DependencyInjection
                 $"{StaffInviteOptions.SetupPageUrlKey} must be an absolute https address (http only for localhost) with no # in it.")
             .ValidateOnStart();
 
+        AddNotifications(services);
+
         services.AddScoped<IPendingActionService, PendingActionService>();
         services.AddScoped<IAccountAdministrationService, AccountAdministrationService>();
         services.AddScoped<IAgencyStatus, AgencyStatusReader>();
         services.AddScoped<IAdminSeeder, AdminSeeder>();
+        services.AddScoped<IBreakGlassService, BreakGlassService>();
+        services.AddScoped<IAdminDirectory, AdminDirectory>();
+    }
+
+    private static void AddNotifications(IServiceCollection services)
+    {
+        services.AddScoped<NotificationRecipients>();
+        services.AddScoped<TimeBasedNotifications>();
+        services.AddScoped<NotificationDispatcher>();
+        services.AddScoped<INotificationService, NotificationService>();
     }
 
     private static void AddKeyProtection(IServiceCollection services, IConfiguration configuration)

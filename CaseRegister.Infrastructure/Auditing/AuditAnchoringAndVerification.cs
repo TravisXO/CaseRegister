@@ -299,7 +299,7 @@ internal sealed partial class AuditVerifier(
 }
 
 /// <summary>Reads the log for the people allowed to, and writes down that they did.</summary>
-internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAuditLog audit) : IAuditReader
+internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAuditLog audit, IAuditReadLog readLog) : IAuditReader
 {
     public async Task<AuditReadResult> QueryAsync(AuditQuery query, AuditViewer viewer, string? remoteIpAddress, CancellationToken cancellationToken = default)
     {
@@ -371,6 +371,13 @@ internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAudit
                     page,
                     size,
                     total);
+
+                // One entry for each person and filter in any ten minutes (paging through the results is the same view), not one for every request.
+                var filter = $"{(isAdmin ? "all" : viewer.AgencyId?.ToString("D"))}|{query.From:O}|{query.To:O}|{query.ActorUserId}|{query.Action}";
+                if (!await readLog.ClaimAsync(viewer.UserId, "audit-log", filter, cancellationToken))
+                {
+                    return;
+                }
 
                 await audit.WriteAsync(
                     new AuditEntry(

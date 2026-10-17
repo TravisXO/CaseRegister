@@ -50,6 +50,11 @@ services:
       - key: Turnstile__SecretKey
         sync: false
 
+      # The only mode there is for now: all data is fake. The API refuses to start with anything else, so no real personal data is used
+      # before a decision has been made about where in Zambia it is hosted.
+      - key: Deployment__Mode
+        value: Demo
+
       # The secret the Cloudflare Pages Function sends with every request. Without it the API answers nothing but /health/live.
       - key: Proxy__Secret
         sync: false

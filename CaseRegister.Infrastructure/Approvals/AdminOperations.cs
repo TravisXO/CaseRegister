@@ -1,10 +1,12 @@
 using CaseRegister.Application.Accounts;
 using CaseRegister.Application.Approvals;
 using CaseRegister.Application.Auditing;
+using CaseRegister.Application.Auth;
 using CaseRegister.Domain.Accounts;
 using CaseRegister.Domain.Agencies;
 using CaseRegister.Domain.Approvals;
 using CaseRegister.Infrastructure.Identity;
+using CaseRegister.Infrastructure.Notifications;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +17,12 @@ namespace CaseRegister.Infrastructure.Approvals;
 internal sealed class OperationOutput
 {
     public string? SetupToken { get; set; }
+
+    /// <summary>The one-time code a reset of somebody's two-factor made. Shown once to the admin who confirms, never stored in the clear.</summary>
+    public string? EnrolmentCode { get; set; }
+
+    /// <summary>What somebody should be told, recorded while the operation runs and turned into notifications only after the commit.</summary>
+    public List<NotificationIntent> Intents { get; } = [];
 }
 
 /// <summary>Who an operation is run by, and what on.</summary>
@@ -39,7 +47,16 @@ internal sealed class OperationContext(
 
     public string? ProposalReason { get; } = proposalReason;
 
+    /// <summary>Names this action in the notifications it causes: the proposal's id when there is one, so the same event is told once.</summary>
+    public Guid EventId { get; init; } = Guid.CreateVersion7();
+
     public OperationOutput Output { get; init; } = new();
+
+    /// <summary>
+    /// Only the break-glass command line sets this: it may suspend an admin even if that leaves fewer than two. Nothing reachable from the
+    /// web can, and the command audits and announces itself.
+    /// </summary>
+    public bool BypassAdminFloor { get; init; }
 }
 
 /// <summary>
@@ -80,7 +97,7 @@ internal static class OperationProblems
 }
 
 /// <summary>Give or take away one role, through <see cref="IRoleAssignmentService"/>'s rules.</summary>
-internal sealed class RoleChangeOperation(PendingActionType type, RoleAssignmentService roles, AppDbContext db) : IAdminOperation
+internal sealed class RoleChangeOperation(PendingActionType type, RoleAssignmentService roles, AppDbContext db, UserManager<ApplicationUser> users) : IAdminOperation
 {
     public PendingActionType Type { get; } = type;
 
@@ -122,7 +139,15 @@ internal sealed class RoleChangeOperation(PendingActionType type, RoleAssignment
             $"roles: {string.Join(", ", plan.After)}",
             AuditAction.RolesChanged,
             plan.User.Id.ToString(),
-            token => roles.ApplyAsync(plan, token));
+            async token =>
+            {
+                await roles.ApplyAsync(plan, token);
+
+                // Their access has changed, so they sign in again to get the new one: a new security stamp and no sessions left.
+                SessionEnding.Ensure(await users.UpdateSecurityStampAsync(plan.User));
+                await db.Sessions.Where(session => session.UserId == plan.User.Id).ExecuteDeleteAsync(token);
+                context.Output.Intents.Add(new RolesChangedIntent(context.EventId, plan.User.Id));
+            });
     }
 }
 
@@ -184,7 +209,7 @@ internal sealed class SuspendUserOperation(UserManager<ApplicationUser> users, A
             return OperationProblems.WrongStatus("The account", "approved");
         }
 
-        if (await AdminCensus.CheckMinimumAsync(db, user.Id, cancellationToken) is { } tooFew)
+        if (!context.BypassAdminFloor && await AdminCensus.CheckMinimumAsync(db, user.Id, cancellationToken) is { } tooFew)
         {
             return OperationPlan.Refuse(tooFew);
         }
@@ -205,7 +230,7 @@ internal sealed class SuspendUserOperation(UserManager<ApplicationUser> users, A
 }
 
 /// <summary>Brings a suspended account back, with its lockout cleared. It still has to sign in with two-factor.</summary>
-internal sealed class ReactivateUserOperation(UserManager<ApplicationUser> users) : IAdminOperation
+internal sealed class ReactivateUserOperation(UserManager<ApplicationUser> users, AppDbContext db, TimeProvider time) : IAdminOperation
 {
     public PendingActionType Type => PendingActionType.ReactivateUser;
 
@@ -228,12 +253,17 @@ internal sealed class ReactivateUserOperation(UserManager<ApplicationUser> users
             "status: Approved; lockout cleared",
             AuditAction.UserReactivated,
             user.Id.ToString(),
-            async _ =>
+            async token =>
             {
                 user.AccountStatus = AccountStatus.Approved;
                 SessionEnding.Ensure(await users.UpdateAsync(user));
-                SessionEnding.Ensure(await users.SetLockoutEndDateAsync(user, null));
-                SessionEnding.Ensure(await users.ResetAccessFailedCountAsync(user));
+
+                // Any lockout left over from before is cleared too (kept as history, marked cleared).
+                var now = time.GetUtcNow();
+                await db.SignInLockouts.Where(lockout => lockout.UserId == user.Id && lockout.ClearedAt == null)
+                    .ExecuteUpdateAsync(set => set.SetProperty(lockout => lockout.ClearedAt, now).SetProperty(lockout => lockout.UpdatedAt, now), token);
+                await db.SignInFailures.Where(failure => failure.UserId == user.Id && failure.ClearedAt == null)
+                    .ExecuteUpdateAsync(set => set.SetProperty(failure => failure.ClearedAt, now).SetProperty(failure => failure.UpdatedAt, now), token);
             });
     }
 }
@@ -269,8 +299,8 @@ internal sealed class EndSessionsOperation(UserManager<ApplicationUser> users, A
 }
 
 /// <summary>
-/// Removes a person's authenticator and recovery codes, ends their sessions, and so makes them enrol again at
-/// their next sign-in. The old records are kept, marked removed: nothing is deleted.
+/// Removes a person's authenticator and recovery codes, ends their sessions (and rotates their security stamp), and makes a one-time
+/// enrolment code that, with their password, lets them enrol again. The old records are kept, marked removed: nothing is deleted.
 /// </summary>
 internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users, AppDbContext db, TimeProvider time) : IAdminOperation
 {
@@ -290,7 +320,8 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
         }
 
         var authenticator = await db.Authenticators.SingleOrDefaultAsync(record => record.UserId == user.Id, cancellationToken);
-        if (authenticator is null)
+        var waitingForEnrolment = await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null, cancellationToken);
+        if (authenticator is null && !waitingForEnrolment)
         {
             return OperationPlan.Refuse("NothingToReset", "The account has no two-factor set up, so there is nothing to reset.");
         }
@@ -299,14 +330,14 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
 
         return new OperationPlan(
             [],
-            $"two-factor: {(authenticator.EnabledAt is null ? "being set up" : "on")}; unused recovery codes: {unusedCodes}",
-            "two-factor: removed, enrolment required at next sign-in; recovery codes revoked; all sessions ended",
+            $"two-factor: {(authenticator is null ? "removed, waiting for a new set-up" : authenticator.EnabledAt is null ? "being set up" : "on")}; unused recovery codes: {unusedCodes}",
+            "two-factor: removed; recovery codes revoked; all sessions ended; one-time enrolment code made (72 hours, used up when set-up is finished)",
             AuditAction.TwoFactorReset,
             user.Id.ToString(),
             async token =>
             {
                 var now = time.GetUtcNow();
-                authenticator.RemovedAt = now;
+                authenticator?.RemovedAt = now;
 
                 var codes = await db.RecoveryCodes
                     .Where(code => code.UserId == user.Id && code.UsedAt == null && code.RevokedAt == null)
@@ -319,6 +350,20 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
                 user.TwoFactorEnabled = false;
                 SessionEnding.Ensure(await users.UpdateAsync(user));
                 await SessionEnding.EndAllAsync(users, db, user, token);
+
+                // A newer code replaces any that was never used or finished. Only the hash is kept.
+                var older = await db.EnrolmentCodes.Where(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null).ToListAsync(token);
+                foreach (var code in older)
+                {
+                    code.RevokedAt = now;
+                }
+
+                var enrolmentCode = EnrolmentCodes.Generate();
+                db.EnrolmentCodes.Add(new EnrolmentCodeRecord(user.Id, EnrolmentCodes.Hash(enrolmentCode), now + EnrolmentCodes.Lifetime));
+                await db.SaveChangesAsync(token);
+
+                context.Output.EnrolmentCode = enrolmentCode;
+                context.Output.Intents.Add(new TwoFactorResetIntent(context.EventId, user.Id));
             });
     }
 }
@@ -346,10 +391,11 @@ internal sealed class SuspendAgencyOperation(AppDbContext db) : IAdminOperation
             "agency: Suspended; its members lose every agent capability",
             AuditAction.AgencySuspended,
             agency.Id.ToString(),
-            token =>
+            async token =>
             {
                 agency.Suspend();
-                return db.SaveChangesAsync(token);
+                await db.SaveChangesAsync(token);
+                context.Output.Intents.Add(new AgencyStatusChangedIntent(context.EventId, agency.Id));
             });
     }
 }
@@ -377,10 +423,11 @@ internal sealed class ReactivateAgencyOperation(AppDbContext db) : IAdminOperati
             "agency: Active",
             AuditAction.AgencyReactivated,
             agency.Id.ToString(),
-            token =>
+            async token =>
             {
                 agency.Reactivate();
-                return db.SaveChangesAsync(token);
+                await db.SaveChangesAsync(token);
+                context.Output.Intents.Add(new AgencyStatusChangedIntent(context.EventId, agency.Id));
             });
     }
 }

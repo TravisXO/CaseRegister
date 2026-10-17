@@ -81,7 +81,8 @@ public sealed partial class DeploymentFilesTests
         var variables = EnvironmentVariables();
 
         Assert.Equal(["value: Production"], variables["ASPNETCORE_ENVIRONMENT"]);
-        foreach (var (name, lines) in variables.Where(variable => variable.Key != "ASPNETCORE_ENVIRONMENT"))
+        Assert.Equal(["value: Demo"], variables["Deployment__Mode"]); // not a secret, and set on purpose: the only mode there is for now
+        foreach (var (name, lines) in variables.Where(variable => variable.Key is not ("ASPNETCORE_ENVIRONMENT" or "Deployment__Mode")))
         {
             Assert.Equal(["sync: false"], lines); // asked for when the blueprint is applied, never kept in this file
             Assert.DoesNotContain(lines, line => line.StartsWith("value:", StringComparison.Ordinal) || line.StartsWith("generateValue", StringComparison.Ordinal));
@@ -107,6 +108,7 @@ public sealed partial class DeploymentFilesTests
             "Turnstile__SecretKey",
             "Proxy__Secret",
             "Invites__SetupPageUrl",
+            "Deployment__Mode",
         ];
 
         Assert.Equal(required.Order(StringComparer.Ordinal), names.Where(name => name != "ASPNETCORE_ENVIRONMENT").Order(StringComparer.Ordinal));

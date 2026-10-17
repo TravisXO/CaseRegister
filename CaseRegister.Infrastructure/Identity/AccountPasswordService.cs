@@ -1,5 +1,8 @@
 using CaseRegister.Application.Auditing;
 using CaseRegister.Application.Auth;
+using CaseRegister.Application.Notifications;
+using CaseRegister.Infrastructure.Approvals;
+using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 
 namespace CaseRegister.Infrastructure.Identity;
@@ -8,7 +11,11 @@ internal sealed class AccountPasswordService(
     UserManager<ApplicationUser> users,
     SignInManager<ApplicationUser> signInManager,
     CredentialChecker credentials,
+    SignInThrottle throttle,
     ITwoFactorService twoFactor,
+    AppDbContext db,
+    INotificationService notifications,
+    IClientLocationAccessor location,
     IAuditLog audit) : IAccountPasswordService
 {
     private const string IncorrectCurrentPassword = "The current password is incorrect.";
@@ -21,7 +28,7 @@ internal sealed class AccountPasswordService(
         CancellationToken cancellationToken = default)
     {
         var user = await users.FindByIdAsync(userId.ToString());
-        if (user is null || !await signInManager.CanSignInAsync(user) || await users.IsLockedOutAsync(user))
+        if (user is null || !await signInManager.CanSignInAsync(user) || await throttle.LockedUntilAsync(userId, remoteIpAddress, cancellationToken) is not null)
         {
             await audit.WriteAsync(
                 new AuditEntry(AuditAction.PasswordChangeFailed, userId, IpAddress: remoteIpAddress, Detail: "account not available"),
@@ -29,7 +36,7 @@ internal sealed class AccountPasswordService(
             return ChangePasswordResult.Failure(IncorrectCurrentPassword);
         }
 
-        // Guessing the current password from a stolen session counts towards lockout like any other guess.
+        // Guessing the current password from a stolen session counts towards the lockout like any other guess.
         if (!await credentials.VerifyPasswordAsync(user, command.CurrentPassword, remoteIpAddress, cancellationToken))
         {
             await audit.WriteAsync(
@@ -68,9 +75,11 @@ internal sealed class AccountPasswordService(
             return ChangePasswordResult.Failure([.. changed.Errors.Select(error => error.Description)]);
         }
 
-        // The stamp changed, so this session would be signed out too. Re-issue its cookie on the new stamp.
-        await signInManager.RefreshSignInAsync(user);
+        // The stamp changed, so every session would fail its next check; the other ones are also deleted now, because the check only runs every few
+        // minutes. This session is re-issued on the new stamp and carries on.
+        await SessionEnding.ReissueAndEndOthersAsync(signInManager, db, user, cancellationToken);
         await audit.WriteAsync(new AuditEntry(AuditAction.PasswordChanged, user.Id, IpAddress: remoteIpAddress), cancellationToken);
+        await notifications.NotifyAsync([NotificationFactory.PasswordChanged(user.Id, Guid.CreateVersion7(), location.Current)], cancellationToken);
 
         return ChangePasswordResult.Success;
     }

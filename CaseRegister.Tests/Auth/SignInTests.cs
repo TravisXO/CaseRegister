@@ -275,10 +275,10 @@ public class SignInTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, (await client.SignInAsync(Email)).StatusCode);
     }
 
-    // --- Lockout -----------------------------------------------------------------------------
+    // --- Lockout (the full set of rules is in SignInThrottleTests) -----------------------------
 
     [Fact]
-    public async Task Five_wrong_passwords_lock_the_account_even_against_the_right_one()
+    public async Task Five_wrong_passwords_lock_the_address_they_came_from_even_against_the_right_one()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         await factory.CreateUserAsync(Email);
@@ -290,11 +290,11 @@ public class SignInTests(PostgresFixture postgres)
         }
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.SignInAsync(Email)).StatusCode);
-        Assert.True((await factory.GetUserAsync(Email)).LockoutEnd > DateTimeOffset.UtcNow);
+        Assert.Single(await factory.WithDbAsync(db => db.SignInLockouts.AsNoTracking().ToListAsync()));
     }
 
     [Fact]
-    public async Task The_lockout_lasts_15_minutes()
+    public async Task The_first_lockout_lasts_15_minutes()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         await factory.CreateUserAsync(Email);
@@ -305,8 +305,8 @@ public class SignInTests(PostgresFixture postgres)
             await client.SignInAsync(Email, "wrong password " + i);
         }
 
-        var remaining = (await factory.GetUserAsync(Email)).LockoutEnd!.Value - DateTimeOffset.UtcNow;
-        Assert.InRange(remaining, TimeSpan.FromMinutes(14), TimeSpan.FromMinutes(15));
+        var lockout = await factory.WithDbAsync(db => db.SignInLockouts.AsNoTracking().SingleAsync());
+        Assert.InRange((lockout.LockedUntil - factory.Clock.GetUtcNow()).TotalSeconds, 15 * 60 - 5, 15 * 60 + 5);
     }
 
     [Fact]
@@ -324,10 +324,10 @@ public class SignInTests(PostgresFixture postgres)
         // The right password gets through the first step but does not forgive the earlier failures:
         // someone with a stolen password must not be able to clear the counter while guessing codes.
         Assert.Equal(HttpStatusCode.OK, (await client.SignInAsync(Email)).StatusCode);
-        Assert.Equal(4, (await factory.GetUserAsync(Email)).AccessFailedCount);
+        Assert.Equal(4, await factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null)));
 
         Assert.Equal(HttpStatusCode.OK, (await client.VerifyTwoFactorAsync(factory.NextTotpCode(user))).StatusCode);
-        Assert.Equal(0, (await factory.GetUserAsync(Email)).AccessFailedCount);
+        Assert.Equal(0, await factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null)));
     }
 
     [Fact]
@@ -339,7 +339,7 @@ public class SignInTests(PostgresFixture postgres)
         await LockOutAsync(factory, Email);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.SignInAsync(Email)).StatusCode);
 
-        await EndLockoutAsync(factory, Email);
+        factory.Clock.Advance(TimeSpan.FromMinutes(16));
 
         Assert.Equal(HttpStatusCode.OK, (await client.SignInAsync(Email)).StatusCode);
     }
@@ -357,76 +357,36 @@ public class SignInTests(PostgresFixture postgres)
             await client.SignInAsync(Email, "wrong password " + i);
         }
 
-        Assert.Equal(1, await factory.WithDbAsync(db => db.LockoutEvents.CountAsync()));
+        Assert.Equal(1, await factory.WithDbAsync(db => db.SignInLockouts.CountAsync()));
         Assert.Equal(AccountStatus.Approved, (await factory.GetUserAsync(Email)).AccountStatus);
     }
 
-    // --- Suspension --------------------------------------------------------------------------
+    // --- Lockout never changes anyone's status ---------------------------------------------------
 
     [Fact]
-    public async Task Three_lockouts_within_24_hours_suspend_the_account()
-    {
-        await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email);
-        var client = factory.CreateApiClient();
-        var stampBefore = (await factory.GetUserAsync(Email)).SecurityStamp;
-
-        for (var round = 1; round <= 3; round++)
-        {
-            await LockOutAsync(factory, Email);
-            Assert.Equal(
-                round == 3 ? AccountStatus.Suspended : AccountStatus.Approved,
-                (await factory.GetUserAsync(Email)).AccountStatus);
-
-            factory.Clock.Advance(TimeSpan.FromHours(1));
-            await EndLockoutAsync(factory, Email);
-        }
-
-        var user = await factory.GetUserAsync(Email);
-        Assert.Equal(AccountStatus.Suspended, user.AccountStatus);
-        Assert.NotEqual(stampBefore, user.SecurityStamp);
-
-        // Suspended: the right password no longer works, lockout or not.
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SignInAsync(Email)).StatusCode);
-    }
-
-    [Fact]
-    public async Task Lockouts_more_than_24_hours_apart_do_not_add_up_to_a_suspension()
-    {
-        await using var factory = await ApiFactory.CreateAsync(postgres);
-        await factory.CreateUserAsync(Email);
-
-        // t = 0h, 13h and 26h. At the third, the first is more than 24 hours old.
-        foreach (var gap in new[] { TimeSpan.Zero, TimeSpan.FromHours(13), TimeSpan.FromHours(13) })
-        {
-            factory.Clock.Advance(gap);
-            await LockOutAsync(factory, Email);
-            await EndLockoutAsync(factory, Email);
-        }
-
-        Assert.Equal(3, await factory.WithDbAsync(db => db.LockoutEvents.CountAsync()));
-        Assert.Equal(AccountStatus.Approved, (await factory.GetUserAsync(Email)).AccountStatus);
-        Assert.Equal(HttpStatusCode.OK, (await factory.CreateApiClient().SignInAsync(Email)).StatusCode);
-    }
-
-    [Fact]
-    public async Task A_suspension_ends_sessions_the_account_already_had_open()
+    public async Task However_many_lockouts_there_are_the_account_is_never_suspended_and_its_sessions_carry_on()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         var user = await factory.CreateUserAsync(Email);
         var session = factory.CreateApiClient();
         await session.SignInWithTwoFactorAsync(factory, user);
-        Assert.Equal(HttpStatusCode.OK, (await session.GetAsync("/api/auth/session")).StatusCode);
+        var stampBefore = (await factory.GetUserAsync(Email)).SecurityStamp;
 
         for (var round = 0; round < 3; round++)
         {
             await LockOutAsync(factory, Email);
-            await EndLockoutAsync(factory, Email);
+            if (round == 0)
+            {
+                Assert.Equal(HttpStatusCode.OK, (await session.GetAsync("/api/auth/session")).StatusCode); // the open session carries on
+            }
+            factory.Clock.Advance(TimeSpan.FromHours(5));
         }
 
-        // The stamp is re-checked every 5 minutes.
-        factory.Clock.Advance(TimeSpan.FromMinutes(6));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await session.GetAsync("/api/auth/session")).StatusCode);
+        var after = await factory.GetUserAsync(Email);
+        Assert.Equal(AccountStatus.Approved, after.AccountStatus);
+        Assert.Equal(stampBefore, after.SecurityStamp);
+        var again = await factory.CreateApiClient().SignInAsync(Email);
+        Assert.True(again.StatusCode == HttpStatusCode.OK, await again.Content.ReadAsStringAsync());
     }
 
     // --- Audit -------------------------------------------------------------------------------
@@ -465,7 +425,7 @@ public class SignInTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Lockouts_and_suspensions_are_audited()
+    public async Task Lockouts_are_audited_and_no_suspension_is_ever_recorded()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         var user = await factory.CreateUserAsync(Email);
@@ -473,17 +433,16 @@ public class SignInTests(PostgresFixture postgres)
         for (var round = 0; round < 3; round++)
         {
             await LockOutAsync(factory, Email);
-            await EndLockoutAsync(factory, Email);
+            factory.Clock.Advance(TimeSpan.FromHours(5));
         }
 
         var actions = (await AuditAsync(factory)).Select(record => record.Action).ToList();
         Assert.Equal(3, actions.Count(action => action == "AccountLockedOut"));
-        Assert.Equal(1, actions.Count(action => action == "AccountSuspended"));
+        Assert.DoesNotContain("AccountSuspended", actions);
         Assert.All(
-            (await AuditAsync(factory)).Where(record => record.Action is "AccountLockedOut" or "AccountSuspended"),
+            (await AuditAsync(factory)).Where(record => record.Action is "AccountLockedOut"),
             record => Assert.Equal(user.Id, record.ActorUserId));
     }
-
     [Fact]
     public async Task No_password_ever_reaches_the_audit_table_or_the_logs()
     {
@@ -536,16 +495,6 @@ public class SignInTests(PostgresFixture postgres)
         {
             await client.SignInAsync(email, "wrong password " + i);
         }
-    }
-
-    private static async Task EndLockoutAsync(ApiFactory factory, string email)
-    {
-        using var scope = factory.Services.CreateScope();
-        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var user = (await users.FindByEmailAsync(email))!;
-
-        await users.SetLockoutEndDateAsync(user, null);
-        await users.ResetAccessFailedCountAsync(user);
     }
 
     private static async Task SetStatusAsync(ApiFactory factory, string email, AccountStatus status)

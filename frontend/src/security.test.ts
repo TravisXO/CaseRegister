@@ -5,7 +5,7 @@ import react from "eslint-plugin-react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import tseslint from "typescript-eslint";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { securityRules } from "../eslint.security.js";
 import { agent, fakeApi, problem, renderApp, signedInAs } from "./test/helpers";
@@ -214,6 +214,13 @@ describe("the source", () => {
     expect(found).toEqual([]);
   });
 
+  it("has timers in one place only: the session timeout warning, and never a repeating one", () => {
+    const withTimers = files.filter((file) => /\b(setTimeout|setInterval)\b/.test(readFileSync(file, "utf8")));
+
+    expect(withTimers.map((file) => relative("src", file).replaceAll("\\", "/"))).toEqual(["auth/SessionTimeout.tsx"]);
+    expect(readFileSync("src/auth/SessionTimeout.tsx", "utf8")).not.toMatch(/setInterval/);
+  });
+
   it("never touches the browser's storage while the app is used", async () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     const getItem = vi.spyOn(Storage.prototype, "getItem");
@@ -247,6 +254,7 @@ describe("background calls", () => {
     renderApp("/profile");
     await screen.findByText("Ada Mwansa");
     await screen.findByText("You have not added a certificate yet.");
+    await waitFor(() => { expect(seen).toContain("/api/notifications"); }); // the bell asks once, when the page opens
     const before = seen.length;
 
     vi.useFakeTimers();
@@ -257,7 +265,7 @@ describe("background calls", () => {
     }
 
     expect(seen.length).toBe(before);
-    expect(seen.sort()).toEqual(["/api/auth/session", "/api/me", "/api/me/practising-certificates"]);
+    expect(seen.sort()).toEqual(["/api/auth/session", "/api/deployment", "/api/me", "/api/me/practising-certificates", "/api/notifications"]);
     server.events.removeAllListeners();
   });
 });

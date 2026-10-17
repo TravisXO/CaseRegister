@@ -15,5 +15,9 @@ export type AuditEntry = Schemas["AuditEntryResponse"];
 export type AuditVerification = Schemas["AuditVerification"];
 export type MembershipClass = Schemas["MembershipClass"];
 export type ProposeActionCommand = Schemas["ProposeActionCommand"];
+export type AppNotification = Schemas["NotificationResponse"];
+export type Person = Schemas["PersonResponse"];
+export type AdminList = Schemas["AdminListResponse"];
+export type NotificationList = Schemas["NotificationListResponse"];
 
 export type Role = "RegisteredAgent" | "AgencyComplianceOfficer" | "CaseReviewer" | "Admin";

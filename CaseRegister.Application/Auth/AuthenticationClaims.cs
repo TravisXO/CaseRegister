@@ -12,6 +12,12 @@ public static class AuthenticationClaims
     /// <summary>Password plus a second factor. Required for everything except enrolment.</summary>
     public const string AmrMultiFactor = "mfa";
 
+    /// <summary>
+    /// On the restricted session that a right enrolment code opens (after a reset of two-factor). Setting two-factor up needs it, so a session that
+    /// did not come through the code cannot enrol while a reset is waiting to be finished.
+    /// </summary>
+    public const string EnrolmentCode = "cr:enrolment-code";
+
     /// <summary>The public id of the session (not the cookie value), so a member can tell which one is theirs.</summary>
     public const string SessionId = "cr:sid";
 

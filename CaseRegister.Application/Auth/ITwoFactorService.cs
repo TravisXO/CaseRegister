@@ -15,6 +15,9 @@ public enum TwoFactorOutcome
 
     /// <summary>There is nothing to confirm (no enrolment in progress).</summary>
     NotApplicable,
+
+    /// <summary>Ten wrong authenticator codes in a row: the authenticator is locked and only a recovery code gets in. The code was not checked.</summary>
+    AuthenticatorLocked,
 }
 
 /// <param name="RetryAfter">Set when <see cref="TwoFactorOutcome.RateLimited"/>: how long to wait.</param>
@@ -45,6 +48,12 @@ public interface ITwoFactorService
     /// their password. An authenticator code is good once; a recovery code is used up.
     /// </summary>
     Task<TwoFactorResult> VerifyCodeAsync(Guid userId, string code, string? remoteIpAddress, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// After a reset: checks the one-time enrolment code for somebody who has passed the password step, and opens the restricted session
+    /// that can reach enrolment. The code is not used up by this: it is, when enrolment is finished.
+    /// </summary>
+    Task<TwoFactorResult> RedeemEnrolmentCodeAsync(string code, string? remoteIpAddress, CancellationToken cancellationToken = default);
 
     /// <summary>Replaces all recovery codes. Needs a valid authenticator code.</summary>
     Task<TwoFactorResult> RegenerateRecoveryCodesAsync(Guid userId, string code, string? remoteIpAddress, CancellationToken cancellationToken = default);

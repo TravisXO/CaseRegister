@@ -1,9 +1,12 @@
 import { request } from "./client";
 import type {
   ApplicationView,
+  AdminList,
+  Person,
   AuditPage,
   AuditVerification,
   CertificateInfo,
+  NotificationList,
   PendingAction,
   Profile,
   ProposeActionCommand,
@@ -21,6 +24,9 @@ export const api = {
   signUp: (body: Schemas["SignUpCommand"]) => request<Schemas["MessageResponse"]>("POST", "/api/auth/sign-up", { body, ...credentialsCall }),
   signIn: (body: Schemas["SignInCommand"]) => request<Schemas["StatusResponse"]>("POST", "/api/auth/sign-in", { body, ...credentialsCall }),
   verifyTwoFactor: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/verify", { body: { code }, ...credentialsCall }),
+  regenerateRecoveryCodes: (code: string) => request<Schemas["RecoveryCodesResponse"]>("POST", "/api/auth/2fa/recovery-codes", { body: { code } }),
+  redeemEnrolmentCode: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/enrolment-code", { body: { code }, ...credentialsCall }),
+  deployment: () => request<Schemas["DeploymentResponse"]>("GET", "/api/deployment", { unauthorised: "report" }),
   signOut: () => request<undefined>("POST", "/api/auth/sign-out", { unauthorised: "report" }),
   session: () => request<SessionResponse>("GET", "/api/auth/session", { unauthorised: "report" }),
   startEnrolment: () => request<Schemas["EnrolmentResponse"]>("POST", "/api/auth/2fa/enrol"),
@@ -38,7 +44,15 @@ export const api = {
   sessions: () => request<SessionInfo[]>("GET", "/api/auth/sessions"),
   endSession: (id: string) => request<undefined>("DELETE", `/api/auth/sessions/${encodeURIComponent(id)}`),
 
+  // --- Notifications: asked for when the person moves to a page or acts, never on a timer ---
+  notifications: (limit: number, unreadOnly: boolean) => request<NotificationList>("GET", `/api/notifications?limit=${limit}&unreadOnly=${unreadOnly}`),
+  markNotificationRead: (id: string) => request<undefined>("POST", `/api/notifications/${encodeURIComponent(id)}/read`),
+  markAllNotificationsRead: () => request<undefined>("POST", "/api/notifications/read-all"),
+  acknowledgeNotification: (id: string) => request<undefined>("POST", `/api/notifications/${encodeURIComponent(id)}/acknowledge`),
+
   // --- Admin ---
+  people: (search: string) => request<Person[]>("GET", `/api/admin/people?search=${encodeURIComponent(search)}`),
+  admins: () => request<AdminList>("GET", "/api/admin/admins"),
   applications: () => request<ApplicationView[]>("GET", "/api/admin/applications"),
   pendingActions: () => request<PendingAction[]>("GET", "/api/admin/pending-actions"),
   pendingAction: (id: string) => request<PendingAction>("GET", `/api/admin/pending-actions/${encodeURIComponent(id)}`),

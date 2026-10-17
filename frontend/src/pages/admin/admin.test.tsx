@@ -333,7 +333,7 @@ describe("the audit log", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Verify chain" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("The chain is intact: 42 entries checked up to number 42, 3 anchors looked at.");
+    expect(await screen.findByText(/The chain is intact: 42 entries checked up to number 42, 3 anchors looked at\./)).toBeInTheDocument();
     expect(recorded.find((item) => item.path === "/api/audit/verify")?.body).toEqual({ fromLastGoodAnchor: false });
     expect(recorded.find((item) => item.path === "/api/audit/verify")?.csrf).toBe("csrf-1");
   });

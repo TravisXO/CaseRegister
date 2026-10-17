@@ -172,7 +172,7 @@ public static class SessionCookie
             return Task.CompletedTask;
         }
 
-        foreach (var claim in context.CurrentPrincipal.Claims.Where(c => c.Type is AuthenticationClaims.Amr or AuthenticationClaims.SessionId))
+        foreach (var claim in context.CurrentPrincipal.Claims.Where(c => c.Type is AuthenticationClaims.Amr or AuthenticationClaims.SessionId or AuthenticationClaims.EnrolmentCode))
         {
             if (!identity.HasClaim(claim.Type, claim.Value))
             {
@@ -182,6 +182,14 @@ public static class SessionCookie
 
         return Task.CompletedTask;
     }
+
+    /// <summary>When the 8-hour limit of this session falls, or null if the ticket does not say when it began.</summary>
+    public static DateTimeOffset? EndsAt(AuthenticationProperties? properties) =>
+        properties is not null
+        && properties.Items.TryGetValue(SignedInAtKey, out var raw)
+        && long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+            ? DateTimeOffset.FromUnixTimeSeconds(seconds) + AbsoluteLimit
+            : null;
 
     // However active the user has been, nobody stays signed in for more than the absolute limit.
     // A ticket with no sign-in time is refused.

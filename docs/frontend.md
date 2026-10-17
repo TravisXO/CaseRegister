@@ -46,15 +46,19 @@ These are enforced by lint rules and tests, not just written down:
 
 - Nothing in `localStorage`, `sessionStorage`, IndexedDB or cookies written by script. Everything about the signed-in person is in memory and is dropped on sign-out and on any 401.
 - No `dangerouslySetInnerHTML`; external links carry `rel="noopener noreferrer"`; no `eval` or `new Function`.
-- No repeating timers, polling or background connections: a background call would keep resetting the 30-minute idle timeout.
+- No repeating timers, polling or background connections: a background call would keep resetting the 30-minute idle timeout. The one exception is the session timeout warning (`src/auth/SessionTimeout.tsx`), the only file with a timer (a test checks): it restarts on every answer from the API, never calls the API by itself, and opens an accessible dialog two minutes before the idle limit ("Stay signed in" makes one cheap authenticated request) and one five minutes before the 8-hour limit (which cannot be extended). Escape closes the dialog and never signs anyone out.
 - The production build works under a policy with no inline script and no `eval`, where Cloudflare Turnstile is the only outside origin (`public/_headers`, tested). Source maps are off.
 - The QR code for two-factor is drawn in the browser from the `otpauth` address. The secret never goes to any other service.
 - All API calls go through `src/api/client.ts`: the anti-forgery token (fetched when first needed, sent on every POST, PUT, PATCH and DELETE, fetched again after signing in), same-origin cookies, and errors shown as a message and a trace id and nothing else.
 - Menus show only what the person's roles allow. The API is the real gatekeeper; the menu is a convenience.
 
+## The demo notice
+
+Every page carries a "Demo: all data is fake" notice, driven by `GET /api/deployment` (the API's `Deployment:Mode`, which can only be `Demo` for now, and without which the API will not start). If the answer has not come or never does, the notice is shown.
+
 ## Packages
 
-Few on purpose. The runtime ones are `react`, `react-dom`, `react-router-dom` and `qrcode`, all MIT. The licences of everything installed were checked (MIT, ISC, Apache-2.0, BSD, with a handful of MPL-2.0 build tools and one data package under CC-BY-4.0; nothing restrictive). TypeScript is held at 5.9 and ESLint at 9 because `typescript-eslint`, `openapi-typescript` and `eslint-plugin-jsx-a11y` do not support the newer versions yet.
+Few on purpose. The runtime ones are `react`, `react-dom`, `react-router-dom` and `qrcode`, all MIT. `axe-core` (MPL-2.0, a development-only dependency that is not shipped) checks the timeout dialog for accessibility problems in the tests. The licences of everything installed were checked (MIT, ISC, Apache-2.0, BSD, with a handful of MPL-2.0 build tools and one data package under CC-BY-4.0; nothing restrictive). TypeScript is held at 5.9 and ESLint at 9 because `typescript-eslint`, `openapi-typescript` and `eslint-plugin-jsx-a11y` do not support the newer versions yet.
 
 ## Production
 

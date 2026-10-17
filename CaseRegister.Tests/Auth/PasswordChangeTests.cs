@@ -103,17 +103,18 @@ public class PasswordChangeTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task A_wrong_code_counts_towards_lockout()
+    public async Task A_wrong_code_counts_as_a_wrong_code_and_ten_lock_the_authenticator_but_never_the_account()
     {
         await using var member = await SignedInAsync();
 
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 10; i++)
         {
             await member.Client.ChangePasswordAsync(ApiFactory.Password, NewPassword, "000000");
         }
 
-        Assert.Equal(1, await member.Factory.WithDbAsync(db => db.LockoutEvents.CountAsync()));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await member.Factory.CreateApiClient().SignInAsync(Email, ApiFactory.Password)).StatusCode);
+        Assert.Equal(10, await member.Factory.WithDbAsync(db => db.SignInFailures.CountAsync(f => f.ClearedAt == null && f.Kind == CaseRegister.Infrastructure.Persistence.FailureKind.SecondFactor)));
+        Assert.Equal(0, await member.Factory.WithDbAsync(db => db.SignInLockouts.CountAsync()));
+        Assert.Equal(HttpStatusCode.OK, (await member.Factory.CreateApiClient().SignInAsync(Email, ApiFactory.Password)).StatusCode);
     }
 
     [Fact]

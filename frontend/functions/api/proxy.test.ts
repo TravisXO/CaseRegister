@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLIENT_IP_HEADER, DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, SECRET_HEADER, handle, onRequest, type ProxyEnv } from "./[[path]]";
+import { CLIENT_GEO_HEADER, CLIENT_IP_HEADER, DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, SECRET_HEADER, handle, onRequest, type ProxyEnv } from "./[[path]]";
 
 const SECRET = "test-secret-test-secret-test-secret-test-secret";
 const HOST = "caseregister.example.test";
@@ -80,6 +80,7 @@ describe("what is never forwarded", () => {
   const spoofed = {
     "X-Proxy-Secret": "the-visitors-own-guess",
     "X-Client-Ip": "6.6.6.6",
+    "X-Client-Geo": "RU|Moscow",
     "X-Forwarded-For": "6.6.6.6, 7.7.7.7",
     "X-Forwarded-Host": "evil.example",
     "X-Forwarded-Proto": "http",
@@ -103,6 +104,7 @@ describe("what is never forwarded", () => {
 
     expect(headers.get(SECRET_HEADER)).toBe(SECRET); // ours, not the visitor's
     expect(headers.has(CLIENT_IP_HEADER)).toBe(false); // nothing from Cloudflare to report, and the visitor's own is not believed
+    expect(headers.has(CLIENT_GEO_HEADER)).toBe(false); // the same for the place: only request.cf is believed, never a header the visitor sent
     expect(headers.get("cookie")).toBe("a=b");
   });
 
@@ -119,6 +121,69 @@ describe("what is never forwarded", () => {
 
     const sent = [...lastCall().headers.entries()].filter(([name]) => name.startsWith("x-proxy-secret"));
     expect(sent).toEqual([["x-proxy-secret", SECRET]]); // exactly one: the one this function set
+  });
+});
+
+describe("where the visitor is", () => {
+  /** A request as Cloudflare's edge hands it to the Function: with request.cf. */
+  const fromCloudflare = (cf: Record<string, unknown>, headers: Record<string, string> = {}) =>
+    handle(Object.assign(new Request(`https://${HOST}/api/auth/session`, { headers }), { cf }), goodEnv);
+
+  it("sends the two-letter country and the city, percent-encoded, from request.cf", async () => {
+    await fromCloudflare({ country: "ZM", city: "Lusaka" });
+
+    expect(lastCall().headers.get(CLIENT_GEO_HEADER)).toBe("ZM|Lusaka");
+  });
+
+  it("encodes a city with accents or spaces, so the header stays plain text", async () => {
+    await fromCloudflare({ country: "BR", city: "São Paulo" });
+
+    expect(lastCall().headers.get(CLIENT_GEO_HEADER)).toBe("BR|S%C3%A3o%20Paulo");
+    expect(decodeURIComponent(lastCall().headers.get(CLIENT_GEO_HEADER)?.split("|")[1] ?? "")).toBe("São Paulo");
+  });
+
+  it("never reads or sends coordinates, a region or a postcode, however much request.cf holds", async () => {
+    await fromCloudflare({ country: "ZM", city: "Lusaka", latitude: "-15.4167", longitude: "28.2833", region: "Lusaka Province", postalCode: "10101", timezone: "Africa/Lusaka", asn: 36874 });
+
+    const sent = lastCall().headers.get(CLIENT_GEO_HEADER) ?? "";
+    expect(sent).toBe("ZM|Lusaka");
+    for (const secret of ["-15.4167", "28.2833", "Province", "10101", "Africa", "36874"]) {
+      expect(sent).not.toContain(secret);
+    }
+
+    expect([...lastCall().headers.keys()].some((name) => /lat|long|coord|region|postal/i.test(name))).toBe(false);
+  });
+
+  it("sends the country alone when the city is missing, blank or absurdly long", async () => {
+    for (const city of [undefined, "", "   ", "x".repeat(101), 42]) {
+      await fromCloudflare({ country: "ZM", city });
+
+      expect(lastCall().headers.get(CLIENT_GEO_HEADER)).toBe("ZM|");
+    }
+  });
+
+  it.each([undefined, "", "Z", "ZMB", "z1", "<script>", 7, null])("sends nothing when the country is %p", async (country) => {
+    await fromCloudflare({ country, city: "Lusaka" });
+
+    expect(lastCall().headers.has(CLIENT_GEO_HEADER)).toBe(false);
+  });
+
+  it("sends nothing when the request did not come through Cloudflare's edge at all (no request.cf)", async () => {
+    await send("/api/auth/session");
+
+    expect(lastCall().headers.has(CLIENT_GEO_HEADER)).toBe(false);
+  });
+
+  it("drops a visitor's own X-Client-Geo and uses request.cf instead", async () => {
+    await fromCloudflare({ country: "ZM", city: "Lusaka" }, { "X-Client-Geo": "RU|Moscow" });
+
+    expect(lastCall().headers.get(CLIENT_GEO_HEADER)).toBe("ZM|Lusaka");
+  });
+
+  it("drops a visitor's own X-Client-Geo even when Cloudflare had nothing to say", async () => {
+    await send("/api/auth/session", { headers: { "X-Client-Geo": "RU|Moscow" } });
+
+    expect(lastCall().headers.has(CLIENT_GEO_HEADER)).toBe(false);
   });
 });
 

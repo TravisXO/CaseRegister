@@ -4,6 +4,8 @@ using System.Security.Claims;
 using CaseRegister.Api.Security;
 using CaseRegister.Application.Auth;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -31,6 +33,7 @@ public sealed class AuthController(
 {
     private const string SignInFailedDetail = "Sign-in failed. Check your details and try again.";
     private const string VerificationFailedDetail = "Verification failed. Check the code and try again.";
+    private const string AuthenticatorLockedDetail = "Too many wrong codes. Your authenticator is locked: use one of your recovery codes to sign in.";
 
     /// <summary>Issues an anti-forgery token. Send it back in the X-CSRF-TOKEN header on every POST, PUT, PATCH and DELETE.</summary>
     [HttpGet("csrf")]
@@ -61,6 +64,7 @@ public sealed class AuthController(
         {
             SignInStatus.TwoFactorRequired => Ok(new StatusResponse("two-factor-required")),
             SignInStatus.TwoFactorEnrolmentRequired => Ok(new StatusResponse("two-factor-enrolment-required")),
+            SignInStatus.EnrolmentCodeRequired => Ok(new StatusResponse("enrolment-code-required")),
             _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign-in failed", detail: SignInFailedDetail),
         };
     }
@@ -77,7 +81,24 @@ public sealed class AuthController(
         {
             TwoFactorOutcome.Succeeded => Ok(new StatusResponse("signed-in")),
             TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
+            TwoFactorOutcome.AuthenticatorLocked => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: AuthenticatorLockedDetail),
             _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: VerificationFailedDetail),
+        };
+    }
+
+    /// <summary>After a reset: the one-time code an admin handed over. Only works right after step one; it is used up when set-up is finished, and good for 72 hours until then.</summary>
+    [HttpPost("2fa/enrolment-code")]
+    [AllowAnonymous]
+    [ProducesResponseType<StatusResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> RedeemEnrolmentCode(TwoFactorCodeCommand command, CancellationToken cancellationToken)
+    {
+        var result = await twoFactor.RedeemEnrolmentCodeAsync(command.Code, RemoteIp(), cancellationToken);
+
+        return result.Outcome switch
+        {
+            TwoFactorOutcome.Succeeded => Ok(new StatusResponse("two-factor-enrolment-required")),
+            TwoFactorOutcome.RateLimited => TooManyRequests.Result(HttpContext, result.RetryAfter ?? TimeSpan.FromMinutes(1)),
+            _ => Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Verification failed", detail: "That code was not accepted. Check it, or ask an admin for a new one."),
         };
     }
 
@@ -95,9 +116,16 @@ public sealed class AuthController(
     [HttpGet("session")]
     [Authorize(Policy = AuthorizationPolicies.SignedIn)]
     [ProducesResponseType<SessionResponse>(StatusCodes.Status200OK)]
-    public IActionResult Session() => Ok(new SessionResponse(
-        User.FindFirstValue(ClaimTypes.NameIdentifier),
-        User.HasClaim(AuthenticationClaims.Amr, AuthenticationClaims.AmrMultiFactor)));
+    public async Task<IActionResult> Session()
+    {
+        var ticket = await HttpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+
+        return Ok(new SessionResponse(
+            User.FindFirstValue(ClaimTypes.NameIdentifier),
+            User.HasClaim(AuthenticationClaims.Amr, AuthenticationClaims.AmrMultiFactor),
+            SessionCookie.EndsAt(ticket.Properties),
+            (int)SessionCookie.IdleTimeout.TotalSeconds));
+    }
 
     // --- Two-factor enrolment ----------------------------------------------------------------
 

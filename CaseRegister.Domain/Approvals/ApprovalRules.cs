@@ -23,12 +23,23 @@ public static class ApprovalRules
     public const int MinimumReasonLength = 10;
     public const int MaximumReasonLength = 500;
 
+    /// <summary>Resetting somebody's two-factor hands over access to their account, so its reason has to say how their identity was checked.</summary>
+    public const int MinimumIdentityReasonLength = 30;
+
     /// <summary>There must always be at least this many active admins, or maker-checker cannot work.</summary>
     public const int MinimumActiveAdmins = 2;
 
     /// <summary>Actions that take access away. They are immediate, unless the target is an admin.</summary>
     public static bool ReducesAccess(PendingActionType type) =>
         type is PendingActionType.SuspendUser or PendingActionType.EndSessions or PendingActionType.SuspendAgency;
+
+    /// <summary>The actions whose reason has to say how the person's identity was checked.</summary>
+    public static bool NeedsIdentityCheckReason(PendingActionType type) => type == PendingActionType.ResetTwoFactor;
+
+    public static ApprovalViolation? CheckIdentityReason(string? reason) =>
+        (reason?.Trim().Length ?? 0) >= MinimumIdentityReasonLength
+            ? null
+            : new ApprovalViolation(ReasonInvalid, $"Say how you checked the person's identity, in at least {MinimumIdentityReasonLength} characters.");
 
     /// <summary>
     /// Whether an action needs a second admin. Anything that grants or restores access always does.
