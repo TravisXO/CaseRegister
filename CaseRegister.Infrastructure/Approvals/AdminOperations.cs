@@ -51,6 +51,12 @@ internal sealed class OperationContext(
     public Guid EventId { get; init; } = Guid.CreateVersion7();
 
     public OperationOutput Output { get; init; } = new();
+
+    /// <summary>
+    /// Only the break-glass command line sets this: it may suspend an admin even if that leaves fewer than two. Nothing reachable from the
+    /// web can, and the command audits and announces itself.
+    /// </summary>
+    public bool BypassAdminFloor { get; init; }
 }
 
 /// <summary>
@@ -199,7 +205,7 @@ internal sealed class SuspendUserOperation(UserManager<ApplicationUser> users, A
             return OperationProblems.WrongStatus("The account", "approved");
         }
 
-        if (await AdminCensus.CheckMinimumAsync(db, user.Id, cancellationToken) is { } tooFew)
+        if (!context.BypassAdminFloor && await AdminCensus.CheckMinimumAsync(db, user.Id, cancellationToken) is { } tooFew)
         {
             return OperationPlan.Refuse(tooFew);
         }

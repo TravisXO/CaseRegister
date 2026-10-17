@@ -52,6 +52,9 @@ internal sealed class BreakGlassService(
     public Task<BreakGlassResult> ResetTwoFactorAsync(Guid userId, string reason, CancellationToken cancellationToken = default) =>
         RunAsync(PendingActionType.ResetTwoFactor, "reset-two-factor", userId, reason, cancellationToken);
 
+    public Task<BreakGlassResult> SuspendAdminAsync(Guid userId, string reason, CancellationToken cancellationToken = default) =>
+        RunAsync(PendingActionType.SuspendUser, "suspend-admin", userId, reason, cancellationToken);
+
     private async Task<BreakGlassResult> RunAsync(PendingActionType type, string command, Guid userId, string reason, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
@@ -69,9 +72,20 @@ internal sealed class BreakGlassService(
         var strategy = db.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            context = new OperationContext(Guid.Empty, userId, null, ActionPayloads.Empty);
+            context = new OperationContext(Guid.Empty, userId, null, ActionPayloads.Empty) { BypassAdminFloor = type == PendingActionType.SuspendUser };
             db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            if (type == PendingActionType.SuspendUser)
+            {
+                // Taking an admin away: serialised with every other change to the set of admins.
+                await AdminCensus.LockAsync(db, cancellationToken);
+                if (!await AdminCensus.HoldsAdminRoleAsync(db, userId, cancellationToken))
+                {
+                    result = new BreakGlassResult(BreakGlassOutcome.NotApplicable, "That account is not an admin. Suspend it from the admin pages.");
+                    return;
+                }
+            }
 
             if (await db.Users.AsNoTracking().AllAsync(user => user.Id != userId, cancellationToken))
             {

@@ -35,4 +35,9 @@ public interface IBreakGlassService
 
     /// <summary>Removes the person's two-factor and sessions and makes a one-time enrolment code.</summary>
     Task<BreakGlassResult> ResetTwoFactorAsync(Guid userId, string reason, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Suspends an admin and ends their sessions, even when that leaves fewer than two active admins. The only way below the floor.
+    /// </summary>
+    Task<BreakGlassResult> SuspendAdminAsync(Guid userId, string reason, CancellationToken cancellationToken = default);
 }

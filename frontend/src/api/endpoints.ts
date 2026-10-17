@@ -1,6 +1,7 @@
 import { request } from "./client";
 import type {
   ApplicationView,
+  AdminList,
   AuditPage,
   AuditVerification,
   CertificateInfo,
@@ -47,6 +48,7 @@ export const api = {
   acknowledgeNotification: (id: string) => request<undefined>("POST", `/api/notifications/${encodeURIComponent(id)}/acknowledge`),
 
   // --- Admin ---
+  admins: () => request<AdminList>("GET", "/api/admin/admins"),
   applications: () => request<ApplicationView[]>("GET", "/api/admin/applications"),
   pendingActions: () => request<PendingAction[]>("GET", "/api/admin/pending-actions"),
   pendingAction: (id: string) => request<PendingAction>("GET", `/api/admin/pending-actions/${encodeURIComponent(id)}`),

@@ -43,8 +43,17 @@ internal static class AdminCensus
     /// it, two changes that are each fine alone could both be checked against the same count and together
     /// leave fewer than two.
     /// </summary>
-    public static Task LockAsync(AppDbContext db, CancellationToken cancellationToken) =>
-        db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({LockKey})", cancellationToken);
+    public static async Task LockAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({LockKey})", cancellationToken);
+
+        // And the admin rows themselves, so nothing that changes an admin (their status, their roles) can slip in between the count
+        // and the change, from a code path that does not know about the advisory lock.
+        var adminRoleId = RoleSeed.IdOf(Role.Admin);
+        await db.Database.ExecuteSqlAsync(
+            $"SELECT 1 FROM users u WHERE u.id IN (SELECT ur.user_id FROM user_roles ur WHERE ur.role_id = {adminRoleId}) FOR UPDATE OF u",
+            cancellationToken);
+    }
 
     /// <summary>The refusal for a change that would leave too few active admins, or null if it is fine.</summary>
     public static async Task<ApprovalViolation?> CheckMinimumAsync(AppDbContext db, Guid userId, CancellationToken cancellationToken)

@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { ErrorBoundary, Loading } from "./components/States";
 import { ActionsPage } from "./pages/admin/ActionsPage";
 import { ApplicationsPage } from "./pages/admin/ApplicationsPage";
+import { AdminsPage } from "./pages/admin/AdminsPage";
 import { AuditPage } from "./pages/admin/AuditPage";
 import { InviteStaffPage } from "./pages/admin/InviteStaffPage";
 import { ProposalPage, ProposalsPage } from "./pages/admin/ProposalsPage";
@@ -69,6 +70,7 @@ export const routes: RouteObject[] = [
                   { path: "admin/proposals/:id", element: <ProposalPage /> },
                   { path: "admin/invite", element: <InviteStaffPage /> },
                   { path: "admin/actions", element: <ActionsPage /> },
+                  { path: "admin/admins", element: <AdminsPage /> },
                 ],
               },
               {

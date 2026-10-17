@@ -68,6 +68,11 @@ public sealed record PendingActionResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SetupLink = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EnrolmentCode = null);
 
+public sealed record AdminSummaryResponse(Guid Id, string FullName, bool IsActive, bool TwoFactorOn);
+
+/// <param name="Warning">True while there are fewer than <paramref name="Recommended"/> active admins.</param>
+public sealed record AdminListResponse(IReadOnlyList<AdminSummaryResponse> Admins, int ActiveCount, int Minimum, int Recommended, bool Warning);
+
 public sealed record AuditEntryResponse(
     long Sequence,
     DateTimeOffset OccurredAt,

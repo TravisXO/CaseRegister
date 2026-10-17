@@ -25,6 +25,7 @@ export function menuFor(profile: Profile): MenuItem[] {
       { to: "/admin/proposals", label: "Proposals" },
       { to: "/admin/invite", label: "Invite staff" },
       { to: "/admin/actions", label: "Account actions" },
+      { to: "/admin/admins", label: "Admins" },
     );
   }
 

@@ -260,6 +260,7 @@ public static class DependencyInjection
         services.AddScoped<IAgencyStatus, AgencyStatusReader>();
         services.AddScoped<IAdminSeeder, AdminSeeder>();
         services.AddScoped<IBreakGlassService, BreakGlassService>();
+        services.AddScoped<IAdminDirectory, AdminDirectory>();
     }
 
     private static void AddNotifications(IServiceCollection services)

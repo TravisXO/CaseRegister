@@ -15,11 +15,12 @@ namespace CaseRegister.Api.Cli;
 public static class BreakGlassCommands
 {
     public const string ResetTwoFactorName = "reset-two-factor";
+    public const string SuspendAdminName = "suspend-admin";
 
     public const int Succeeded = 0;
     public const int Refused = 1;
 
-    public static bool Handles(string? name) => name is ResetTwoFactorName;
+    public static bool Handles(string? name) => name is ResetTwoFactorName or SuspendAdminName;
 
     public static async Task<int> RunAsync(
         string[] args,
@@ -78,7 +79,15 @@ public static class BreakGlassCommands
 
         terminal.WriteLine($"{target.FullName} ({(target.IsAdmin ? "an admin" : "not an admin")}).");
 
-        var reason = (terminal.ReadLine("Reason (how their identity was checked, and why): ") ?? string.Empty).Trim();
+        if (command == SuspendAdminName && !target.IsAdmin)
+        {
+            terminal.WriteLine("That account is not an admin. Suspend other accounts from the admin pages.");
+            return await RefuseAsync(audit, terminal, command, "not an admin", cancellationToken);
+        }
+
+        var reason = (terminal.ReadLine(command == SuspendAdminName
+            ? "Reason (why this admin has to be suspended): "
+            : "Reason (how their identity was checked, and why): ") ?? string.Empty).Trim();
         if (ApprovalRules.CheckIdentityReason(reason) is { } badReason)
         {
             terminal.WriteLine(badReason.Message);
@@ -91,10 +100,21 @@ public static class BreakGlassCommands
             return await RefuseAsync(audit, terminal, command, "not confirmed", cancellationToken);
         }
 
-        var result = await breakGlass.ResetTwoFactorAsync(target.UserId, reason, cancellationToken);
+        if (command == SuspendAdminName)
+        {
+            terminal.WriteLine("This suspends the admin even if fewer than two active admins are left. Add admins afterwards with the normal approval process, or seed-admin if none are left.");
+        }
+
+        var result = command == SuspendAdminName
+            ? await breakGlass.SuspendAdminAsync(target.UserId, reason, cancellationToken)
+            : await breakGlass.ResetTwoFactorAsync(target.UserId, reason, cancellationToken);
 
         switch (result.Outcome)
         {
+            case BreakGlassOutcome.Done when command == SuspendAdminName:
+                terminal.WriteLine("The admin was suspended and their sessions were ended. Every admin and the person have been told.");
+                return Succeeded;
+
             case BreakGlassOutcome.Done:
                 terminal.WriteLine("Two-factor was removed, the person's sessions were ended, and every admin and the person have been told.");
                 terminal.WriteLine($"One-time enrolment code (valid {(int)Application.Auth.EnrolmentCodes.Lifetime.TotalHours} hours, shown only now): {result.EnrolmentCode}");

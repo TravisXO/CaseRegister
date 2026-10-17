@@ -25,8 +25,24 @@ namespace CaseRegister.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
-public sealed class AdminController(IPendingActionService approvals, IAccountAdministrationService administration, IApplicationReviewService applications) : ControllerBase
+public sealed class AdminController(IPendingActionService approvals, IAccountAdministrationService administration, IApplicationReviewService applications, IAdminDirectory directory) : ControllerBase
 {
+    /// <summary>Who the admins are, and whether there are enough of them: the list warns while there are fewer than three active ones.</summary>
+    [HttpGet("admins")]
+    [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [ProducesResponseType<AdminListResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Admins(CancellationToken cancellationToken)
+    {
+        var listing = await directory.ListAdminsAsync(cancellationToken);
+
+        return Ok(new AdminListResponse(
+            [.. listing.Admins.Select(admin => new AdminSummaryResponse(admin.UserId, admin.FullName, admin.IsActive, admin.TwoFactorOn))],
+            listing.ActiveCount,
+            listing.Minimum,
+            listing.Recommended,
+            listing.ActiveCount < listing.Recommended));
+    }
+
     // --- Proposals that need a second admin ----------------------------------------------------
 
     /// <summary>Proposals still waiting, with their expiry worked out. <c>includeClosed</c> adds decided and lapsed ones.</summary>
