@@ -13,6 +13,9 @@ public sealed record CsrfResponse(string Token);
 /// <param name="Status">"two-factor-required" or "two-factor-enrolment-required" after the password; "signed-in" after the code.</param>
 public sealed record StatusResponse(string Status);
 
+/// <param name="Mode">"Demo" is the only mode there is for now: all data is fake.</param>
+public sealed record DeploymentResponse(string Mode);
+
 /// <param name="SessionEndsAt">The hard 8-hour limit: however active the person is, the session cannot be extended past this.</param>
 /// <param name="IdleTimeoutSeconds">How long without a request ends the session (30 minutes). Any request restarts it.</param>
 public sealed record SessionResponse(string? UserId, bool TwoFactorComplete, DateTimeOffset? SessionEndsAt = null, int IdleTimeoutSeconds = 0);

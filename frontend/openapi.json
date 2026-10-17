@@ -3928,6 +3928,35 @@
         }
       }
     },
+    "/api/deployment": {
+      "get": {
+        "tags": [
+          "Deployment"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me": {
       "get": {
         "tags": [
@@ -6014,6 +6043,17 @@
           }
         }
       },
+      "DeploymentResponse": {
+        "required": [
+          "mode"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          }
+        }
+      },
       "EnrolmentResponse": {
         "required": [
           "otpAuthUri",
@@ -6844,6 +6884,9 @@
     },
     {
       "name": "Auth"
+    },
+    {
+      "name": "Deployment"
     },
     {
       "name": "Me"

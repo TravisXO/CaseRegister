@@ -26,6 +26,7 @@ export const api = {
   verifyTwoFactor: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/verify", { body: { code }, ...credentialsCall }),
   regenerateRecoveryCodes: (code: string) => request<Schemas["RecoveryCodesResponse"]>("POST", "/api/auth/2fa/recovery-codes", { body: { code } }),
   redeemEnrolmentCode: (code: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/2fa/enrolment-code", { body: { code }, ...credentialsCall }),
+  deployment: () => request<Schemas["DeploymentResponse"]>("GET", "/api/deployment", { unauthorised: "report" }),
   signOut: () => request<undefined>("POST", "/api/auth/sign-out", { unauthorised: "report" }),
   session: () => request<SessionResponse>("GET", "/api/auth/session", { unauthorised: "report" }),
   startEnrolment: () => request<Schemas["EnrolmentResponse"]>("POST", "/api/auth/2fa/enrol"),

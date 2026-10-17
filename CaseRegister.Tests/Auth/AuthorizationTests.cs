@@ -143,6 +143,7 @@ public class AuthorizationTests(PostgresFixture postgres)
             new("POST", "api/auth/2fa/enrolment-code", "anonymous"),
             new("POST", "api/auth/change-password", "two-factor"),
             new("GET", "api/auth/csrf", "anonymous"),
+            new("GET", "api/deployment", "anonymous"),
             new("GET", "api/auth/session", "SignedIn"),
             new("GET", "api/auth/sessions", "two-factor"),
             new("DELETE", "api/auth/sessions/{id:guid}", "two-factor"),
@@ -183,7 +184,7 @@ public class AuthorizationTests(PostgresFixture postgres)
 
         // The only endpoints open to anyone are those that have to be: a token, the two sign-in steps, applying, and the two steps of staff setup.
         Assert.Equal(
-            ["api/auth/2fa/enrolment-code", "api/auth/2fa/verify", "api/auth/csrf", "api/auth/sign-in", "api/auth/sign-up", "api/auth/staff-setup/complete", "api/auth/staff-setup/start"],
+            ["api/auth/2fa/enrolment-code", "api/auth/2fa/verify", "api/auth/csrf", "api/auth/sign-in", "api/auth/sign-up", "api/auth/staff-setup/complete", "api/auth/staff-setup/start", "api/deployment"],
             endpoints.Where(rule => rule.Rule == "anonymous").Select(rule => rule.Route).Order(StringComparer.Ordinal));
     }
 }

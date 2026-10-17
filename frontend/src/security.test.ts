@@ -265,7 +265,7 @@ describe("background calls", () => {
     }
 
     expect(seen.length).toBe(before);
-    expect(seen.sort()).toEqual(["/api/auth/session", "/api/me", "/api/me/practising-certificates", "/api/notifications"]);
+    expect(seen.sort()).toEqual(["/api/auth/session", "/api/deployment", "/api/me", "/api/me/practising-certificates", "/api/notifications"]);
     server.events.removeAllListeners();
   });
 });

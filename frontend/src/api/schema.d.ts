@@ -2577,6 +2577,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/deployment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["DeploymentResponse"];
+                        "application/json": components["schemas"]["DeploymentResponse"];
+                        "text/json": components["schemas"]["DeploymentResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -4185,6 +4222,9 @@ export interface components {
         };
         DecisionReasonCommand: {
             reason: string;
+        };
+        DeploymentResponse: {
+            mode: string;
         };
         EnrolmentResponse: {
             otpAuthUri: string;

@@ -83,6 +83,10 @@ public static class DependencyInjection
     private static void AddMembership(IServiceCollection services)
     {
         // The display prefix has no default in code: it comes from configuration and a bad value stops startup.
+        services.AddOptions<DeploymentOptions>()
+            .Configure<IConfiguration>((options, configuration) => options.Mode = configuration[DeploymentOptions.ModeKey])
+            .Validate(options => DeploymentOptions.IsValid(options.Mode), DeploymentOptions.Problem)
+            .ValidateOnStart();
         services.AddOptions<MembershipOptions>()
             .Configure<IConfiguration>((options, configuration) =>
                 options.DisplayPrefix = configuration[MembershipOptions.DisplayPrefixKey] ?? string.Empty)
