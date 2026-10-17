@@ -29,7 +29,7 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
 {
     /// <summary>Who the admins are, and whether there are enough of them: the list warns while there are fewer than three active ones.</summary>
     [HttpGet("admins")]
-    [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [Authorize(Policy = nameof(Capability.LookUpPeople))]
     [AuditListView("admins")]
     [ProducesResponseType<AdminListResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Admins(CancellationToken cancellationToken)
@@ -46,7 +46,7 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
 
     /// <summary>Finds accounts by name or email (three characters at least), so an admin can name the right one. Each search is audited.</summary>
     [HttpGet("people")]
-    [Authorize(Policy = nameof(Capability.ViewPendingActions))]
+    [Authorize(Policy = nameof(Capability.LookUpPeople))]
     [AuditListView("people")]
     [ProducesResponseType<IReadOnlyList<PersonResponse>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> People([FromQuery] string? search, CancellationToken cancellationToken) =>

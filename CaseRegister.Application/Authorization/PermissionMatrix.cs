@@ -24,6 +24,7 @@ public enum Capability
     RestrictAccess,
     ViewApplications,
     VerifyAuditLog,
+    LookUpPeople,
 
     // Being told when an account is locked out or a break-glass action is run. Admins only.
     ReceiveSecurityAlerts,
@@ -117,6 +118,9 @@ public static class PermissionMatrix
 
             // Checking the audit chain for tampering. Admins only, and the check is itself audited.
             [Capability.VerifyAuditLog] = Grant((Role.Admin, AccessScope.Unscoped)),
+
+            // Finding an account by name or email, and the list of admins. Admins only; each use is written to the audit log.
+            [Capability.LookUpPeople] = Grant((Role.Admin, AccessScope.Unscoped)),
 
             // Who is told about lockouts and break-glass actions. The notification service asks the matrix; no role is named anywhere else.
             [Capability.ReceiveSecurityAlerts] = Grant((Role.Admin, AccessScope.Unscoped)),

@@ -53,6 +53,7 @@ public static class ExpectedMatrix
         [(Capability.RestrictAccess, Role.Admin)] = AccessScope.Unscoped,
         [(Capability.ViewApplications, Role.Admin)] = AccessScope.Unscoped,
         [(Capability.VerifyAuditLog, Role.Admin)] = AccessScope.Unscoped,
+        [(Capability.LookUpPeople, Role.Admin)] = AccessScope.Unscoped,
 
         // Who is told about lockouts and break-glass actions.
         [(Capability.ReceiveSecurityAlerts, Role.Admin)] = AccessScope.Unscoped,
@@ -64,11 +65,11 @@ public static class ExpectedMatrix
     [
         "RunPreDealCheck", "FileConductReport", "ViewUpheldCases", "DecideConductCases", "RaiseInternalSuspicion",
         "ReadFicReports", "FileFicReports", "ViewComplianceStatus", "ViewFicTotals", "ApproveAgents", "ReadAuditLog",
-        "ViewPendingActions", "ProposeAdminActions", "ConfirmAdminActions", "RestrictAccess", "ViewApplications", "VerifyAuditLog",
+        "ViewPendingActions", "ProposeAdminActions", "ConfirmAdminActions", "RestrictAccess", "ViewApplications", "VerifyAuditLog", "LookUpPeople",
         "ReceiveSecurityAlerts",
     ];
 
-    /// <summary>Every (capability, role) pair: 18 actions by 4 roles.</summary>
+    /// <summary>Every (capability, role) pair: 19 actions by 4 roles.</summary>
     public static TheoryData<Capability, Role> EveryCell()
     {
         var data = new TheoryData<Capability, Role>();
@@ -90,7 +91,7 @@ public class PermissionMatrixTests
     public void There_is_one_capability_for_each_action_in_the_specification_with_the_names_given()
     {
         Assert.Equal(ExpectedMatrix.PolicyNames.Order(StringComparer.Ordinal), Enum.GetNames<Capability>().Order(StringComparer.Ordinal));
-        Assert.Equal(18, PermissionMatrix.Capabilities.Count());
+        Assert.Equal(19, PermissionMatrix.Capabilities.Count());
     }
 
     [Theory]
