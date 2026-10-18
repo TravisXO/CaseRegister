@@ -20,7 +20,7 @@ namespace CaseRegister.Tests.Hardening;
 [Collection(PostgresTestGroup.Name)]
 public sealed class EnvironmentTests(PostgresFixture postgres)
 {
-    private const string StrictPolicy = "default-src 'none'; frame-ancestors 'none'";
+    private const string StrictPolicy = "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
     private static readonly string[] _apiDescriptionAndReferencePaths = ["/openapi/v1.json", "/openapi", "/scalar", "/scalar/v1", "/scalar/scalar.js", "/swagger", "/swagger/v1/swagger.json"];
 
     private Task<ApiFactory> ProductionAsync(Action<Dictionary<string, string?>>? adjust = null) =>

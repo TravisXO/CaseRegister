@@ -33,6 +33,7 @@ public sealed class ExternalCallResilienceTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostEnvironment>(new Microsoft.Extensions.Hosting.Internal.HostingEnvironment { EnvironmentName = "Development" });
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Turnstile:SecretKey"] = "test-secret" }).Build());
 
         DependencyInjection.AddExternalClients(services);
@@ -129,10 +130,10 @@ public sealed class ExternalCallResilienceTests
     [Fact]
     public async Task A_verification_that_fails_twice_and_then_works_is_retried_and_passes()
     {
-        var handler = new ScriptedHandler((_, call, _) => call < 3 ? Reply(HttpStatusCode.BadGateway) : Reply(HttpStatusCode.OK, "{\"success\":true}"));
+        var handler = new ScriptedHandler((_, call, _) => call < 3 ? Reply(HttpStatusCode.BadGateway) : Reply(HttpStatusCode.OK, "{\"success\":true,\"action\":\"sign-in\"}"));
         await using var provider = Build(handler);
 
-        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", "203.0.113.5");
+        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", "203.0.113.5", "sign-in");
 
         Assert.True(passed);
         Assert.Equal(3, handler.Calls);
@@ -144,7 +145,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, _, _) => Reply(HttpStatusCode.ServiceUnavailable));
         await using var provider = Build(handler);
 
-        Assert.False(await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null));
+        Assert.False(await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, "sign-in"));
         Assert.Equal(3, handler.Calls);
     }
 
@@ -160,7 +161,7 @@ public sealed class ExternalCallResilienceTests
         await using var provider = Build(handler);
         var timer = Stopwatch.StartNew();
 
-        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null);
+        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, "sign-in");
         timer.Stop();
 
         Assert.False(passed);
@@ -179,7 +180,7 @@ public sealed class ExternalCallResilienceTests
         await using var provider = Build(handler);
         using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, cancel.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, "sign-in", cancel.Token));
     }
 
     // --- The settings -------------------------------------------------------------------------------------------

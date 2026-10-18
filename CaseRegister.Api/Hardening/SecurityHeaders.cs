@@ -7,7 +7,7 @@ namespace CaseRegister.Api.Hardening;
 public sealed class SecurityHeadersMiddleware(RequestDelegate next, IWebHostEnvironment environment)
 {
     /// <summary>The policy for the API: no content of any kind may be loaded, and nothing may frame a response.</summary>
-    public const string ApiContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
+    public const string ApiContentSecurityPolicy = "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
     /// <summary>
     /// The API reference page in Development only: it loads its own script, styles, fonts and images, and

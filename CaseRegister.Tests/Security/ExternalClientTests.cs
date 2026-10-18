@@ -146,15 +146,20 @@ public class HaveIBeenPwnedClientTests
 
 public class TurnstileVerifierTests
 {
-    private static TurnstileVerifier Verifier(StubHandler handler, string secret = ApiFactory.TurnstileTestSecret)
+    private static TurnstileVerifier Verifier(StubHandler handler, string secret = ApiFactory.TurnstileTestSecret, string? hostname = null, bool requireAction = false, CapturingLoggerProvider? logs = null)
     {
-        using var factory = LoggerFactory.Create(builder => builder.AddProvider(new CapturingLoggerProvider()));
+        using var factory = LoggerFactory.Create(builder => builder.AddProvider(logs ?? new CapturingLoggerProvider()));
 
         return new TurnstileVerifier(
             new HttpClient(handler),
-            Options.Create(new TurnstileOptions { SecretKey = secret }),
+            Options.Create(new TurnstileOptions { SecretKey = secret, ExpectedHostname = hostname, RequireAction = requireAction }),
             factory.CreateLogger<TurnstileVerifier>());
     }
+
+    private const string Site = "caseregister.example.test";
+
+    private static StubHandler Answers(string hostname = Site, string? action = "sign-in", bool success = true) =>
+        new(_ => Json($$"""{"success": {{(success ? "true" : "false")}}, "hostname": "{{hostname}}"{{(action is null ? string.Empty : $", \"action\": \"{action}\"")}}}"""));
 
     private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
@@ -164,7 +169,7 @@ public class TurnstileVerifierTests
     {
         var handler = new StubHandler(_ => Json("""{"success": true}"""));
 
-        var verified = await Verifier(handler).VerifyAsync("the-token", "203.0.113.9");
+        var verified = await Verifier(handler).VerifyAsync("the-token", "203.0.113.9", "sign-in");
 
         Assert.True(verified);
         var (request, body) = Assert.Single(handler.Requests);
@@ -182,7 +187,7 @@ public class TurnstileVerifierTests
     {
         var handler = new StubHandler(_ => Json("""{"success": true}"""));
 
-        await Verifier(handler).VerifyAsync("the-token", null);
+        await Verifier(handler).VerifyAsync("the-token", null, "sign-in");
 
         Assert.Null(System.Web.HttpUtility.ParseQueryString(Assert.Single(handler.Requests).Body)["remoteip"]);
     }
@@ -192,7 +197,7 @@ public class TurnstileVerifierTests
     {
         var handler = new StubHandler(_ => Json("""{"success": false, "error-codes": ["invalid-input-response"]}"""));
 
-        Assert.False(await Verifier(handler).VerifyAsync("bad-token", "203.0.113.9"));
+        Assert.False(await Verifier(handler).VerifyAsync("bad-token", "203.0.113.9", "sign-in"));
     }
 
     [Theory]
@@ -203,7 +208,7 @@ public class TurnstileVerifierTests
     {
         var handler = new StubHandler(_ => Json("""{"success": true}"""));
 
-        Assert.False(await Verifier(handler).VerifyAsync(token, "203.0.113.9"));
+        Assert.False(await Verifier(handler).VerifyAsync(token, "203.0.113.9", "sign-in"));
         Assert.Empty(handler.Requests);
     }
 
@@ -214,7 +219,7 @@ public class TurnstileVerifierTests
     {
         var handler = new StubHandler(_ => Json("""{"success": true}""", status));
 
-        Assert.False(await Verifier(handler).VerifyAsync("the-token", null));
+        Assert.False(await Verifier(handler).VerifyAsync("the-token", null, "sign-in"));
     }
 
     [Fact]
@@ -222,7 +227,7 @@ public class TurnstileVerifierTests
     {
         var handler = new StubHandler(_ => throw new HttpRequestException("no route"));
 
-        Assert.False(await Verifier(handler).VerifyAsync("the-token", null));
+        Assert.False(await Verifier(handler).VerifyAsync("the-token", null, "sign-in"));
     }
 
     [Fact]
@@ -230,6 +235,86 @@ public class TurnstileVerifierTests
     {
         var handler = new StubHandler(_ => Json("this is not json"));
 
-        Assert.False(await Verifier(handler).VerifyAsync("the-token", null));
+        Assert.False(await Verifier(handler).VerifyAsync("the-token", null, "sign-in"));
+    }
+
+    // --- The token has to be for this site and this form -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_token_for_this_site_and_this_form_passes()
+    {
+        Assert.True(await Verifier(Answers(), hostname: Site, requireAction: true).VerifyAsync("the-token", null, "sign-in"));
+    }
+
+    [Theory]
+    [InlineData("evil.example.net")]
+    [InlineData("example.com")]
+    [InlineData("caseregister.example.test.evil.net")]
+    [InlineData("")]
+    public async Task A_token_issued_for_another_hostname_fails(string hostname)
+    {
+        var logs = new CapturingLoggerProvider();
+
+        Assert.False(await Verifier(Answers(hostname), hostname: Site, requireAction: true, logs: logs).VerifyAsync("the-token", null, "sign-in"));
+        Assert.Contains(logs.Entries, entry => entry.Message.Contains("different hostname", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_hostname_is_compared_without_regard_to_case_or_stray_spaces_in_the_setting()
+    {
+        Assert.True(await Verifier(Answers("CaseRegister.Example.TEST"), hostname: " " + Site + " ", requireAction: true).VerifyAsync("the-token", null, "sign-in"));
+    }
+
+    [Fact]
+    public async Task A_token_with_no_hostname_in_the_answer_fails_when_one_is_expected()
+    {
+        var handler = new StubHandler(_ => Json("""{"success": true, "action": "sign-in"}"""));
+
+        Assert.False(await Verifier(handler, hostname: Site, requireAction: true).VerifyAsync("the-token", null, "sign-in"));
+    }
+
+    [Theory]
+    [InlineData("sign-up")]
+    [InlineData("SIGN-IN")]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task A_token_issued_for_another_form_or_for_none_fails(string? issuedFor)
+    {
+        var logs = new CapturingLoggerProvider();
+
+        Assert.False(await Verifier(Answers(action: issuedFor), hostname: Site, requireAction: true, logs: logs).VerifyAsync("the-token", null, "sign-in"));
+        Assert.Contains(logs.Entries, entry => entry.Message.Contains("different form", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_sign_up_token_does_not_open_the_sign_in_form_and_the_other_way_round()
+    {
+        Assert.False(await Verifier(Answers(action: "sign-up"), hostname: Site, requireAction: true).VerifyAsync("the-token", null, "sign-in"));
+        Assert.True(await Verifier(Answers(action: "sign-up"), hostname: Site, requireAction: true).VerifyAsync("the-token", null, "sign-up"));
+        Assert.False(await Verifier(Answers(action: "sign-in"), hostname: Site, requireAction: true).VerifyAsync("the-token", null, "sign-up"));
+    }
+
+    [Fact]
+    public async Task A_token_cloudflare_does_not_confirm_fails_whatever_it_says_about_site_and_form()
+    {
+        Assert.False(await Verifier(Answers(success: false), hostname: Site, requireAction: true).VerifyAsync("the-token", null, "sign-in"));
+    }
+
+    [Fact]
+    public async Task With_the_checks_off_for_cloudflares_test_keys_only_success_counts()
+    {
+        var handler = new StubHandler(_ => Json("""{"success": true, "hostname": "example.com"}"""));
+
+        Assert.True(await Verifier(handler, hostname: null, requireAction: false).VerifyAsync("the-token", null, "sign-in"));
+    }
+
+    [Fact]
+    public async Task The_failure_log_says_what_was_wrong_and_never_the_token_or_the_secret()
+    {
+        var logs = new CapturingLoggerProvider();
+
+        await Verifier(Answers("evil.example.net"), hostname: Site, requireAction: true, logs: logs).VerifyAsync("the-secret-token-value", null, "sign-in");
+
+        Assert.DoesNotContain(logs.Entries, entry => entry.Message.Contains("the-secret-token-value", StringComparison.Ordinal) || entry.Message.Contains(ApiFactory.TurnstileTestSecret, StringComparison.Ordinal));
     }
 }

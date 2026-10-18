@@ -104,6 +104,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         if (environmentName == "Production")
         {
             _settings["Proxy:Secret"] = ProxyTestSecret;
+            _settings["Turnstile:ExpectedHostname"] = "app.example.test";
             _settings["Audit:R2:Endpoint"] = "https://account-for-tests.r2.cloudflarestorage.com";
             _settings["Audit:R2:Bucket"] = "anchors-for-tests";
             _settings["Audit:R2:AccessKeyId"] = "access-key-for-tests";

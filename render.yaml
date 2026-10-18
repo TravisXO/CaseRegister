@@ -54,6 +54,10 @@ services:
       - key: Turnstile__SecretKey
         sync: false
 
+      # The Pages hostname the forms are on. Cloudflare says which site a token was issued for; one issued for any other is refused.
+      - key: Turnstile__ExpectedHostname
+        sync: false
+
       # The only mode there is for now: all data is fake. The API refuses to start with anything else, so no real personal data is used
       # before a decision has been made about where in Zambia it is hosted.
       - key: Deployment__Mode

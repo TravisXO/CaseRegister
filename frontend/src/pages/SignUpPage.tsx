@@ -112,7 +112,7 @@ export function SignUpPage() {
         <TextField id="agency-name" label="Agency you work for" value={form.agencyName} onChange={(event) => { set("agencyName")(event.target.value); }} error={errorFor(problems.problems, "agency-name")} />
         <TextField id="certificate-number" label="Practising certificate number" hint="As printed on the certificate, for example 9611/2026." value={form.certificateNumber} onChange={(event) => { set("certificateNumber")(event.target.value); }} error={errorFor(problems.problems, "certificate-number")} />
         <TextField id="certificate-year" label="Certificate year" inputMode="numeric" value={form.certificateYear} onChange={(event) => { set("certificateYear")(event.target.value); }} error={errorFor(problems.problems, "certificate-year")} />
-        <Turnstile ref={turnstile} onToken={setToken} />
+        <Turnstile action="sign-up" ref={turnstile} onToken={setToken} />
         {errorFor(problems.problems, "turnstile") === undefined ? null : <p className="field-error mb-4">{errorFor(problems.problems, "turnstile")}</p>}
         <SubmitButton pending={submit.pending}>Send application</SubmitButton>
       </form>

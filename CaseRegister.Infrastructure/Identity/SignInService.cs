@@ -28,7 +28,7 @@ internal sealed class SignInService(
         var subject = pseudonyms.ForEmail(email);
 
         // Bot check first. A failure looks exactly like any other failed sign-in.
-        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, cancellationToken))
+        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, ITurnstileVerifier.Actions.SignIn, cancellationToken))
         {
             return await FailAsync(command.Password, null, subject, remoteIpAddress, "bot check failed", cancellationToken);
         }

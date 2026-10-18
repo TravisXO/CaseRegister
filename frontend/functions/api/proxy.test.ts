@@ -205,6 +205,69 @@ describe("what comes back", () => {
     expect(response.headers.getSetCookie()).toEqual(cookies);
   });
 
+  it("passes several Set-Cookie headers through one by one and in order, with every attribute untouched, however they look joined", async () => {
+    // A cookie's own Expires holds a comma, which is why several cannot safely be joined into one header: each must stay a header of its own.
+    const cookies = [
+      "__Host-cr=abc123; path=/; secure; httponly; samesite=strict",
+      "__Host-cr-2fa=step456; path=/; secure; httponly; samesite=strict; expires=Wed, 21 Oct 2026 07:28:00 GMT",
+      "__Host-cr-csrf=def789; path=/; secure; httponly; samesite=strict; max-age=3600",
+      "__Host-cr-2fa=; path=/; secure; httponly; samesite=strict; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    ];
+    fetchMock.mockImplementation(() => {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      for (const cookie of cookies) {
+        headers.append("Set-Cookie", cookie);
+      }
+
+      return Promise.resolve(new Response("{}", { status: 200, headers }));
+    });
+
+    const response = await send("/api/auth/2fa/verify", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+
+    expect(response.headers.getSetCookie()).toEqual(cookies);
+    expect(response.headers.getSetCookie()).toHaveLength(4);
+  });
+
+  it("never adds a Domain to a cookie, so a __Host- cookie stays valid and stays on this site only", async () => {
+    fetchMock.mockImplementation(() => {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      headers.append("Set-Cookie", "__Host-cr=abc; path=/; secure; httponly; samesite=strict");
+      headers.append("Set-Cookie", "plain=1; path=/");
+
+      return Promise.resolve(new Response("{}", { status: 200, headers }));
+    });
+
+    const response = await send("/api/auth/sign-in", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+
+    for (const cookie of response.headers.getSetCookie()) {
+      expect(cookie.toLowerCase()).not.toContain("domain");
+    }
+
+    expect(response.headers.getSetCookie()[0]).toBe("__Host-cr=abc; path=/; secure; httponly; samesite=strict");
+  });
+
+  it("never rewrites a cookie's Path, whatever it is and whatever address the request came to", async () => {
+    const cookies = ["a=1; path=/", "b=2; path=/api/auth", "c=3; Path=/api; Secure", "d=4"];
+    fetchMock.mockImplementation(() => {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      for (const cookie of cookies) {
+        headers.append("Set-Cookie", cookie);
+      }
+
+      return Promise.resolve(new Response("{}", { status: 200, headers }));
+    });
+
+    const response = await send("/api/auth/sign-in?next=/profile", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+
+    expect(response.headers.getSetCookie()).toEqual(cookies); // not even a Path added to the one that had none
+  });
+
+  it("sends the visitor's cookies on to the API as one header, untouched", async () => {
+    await send("/api/me", { headers: { Cookie: "__Host-cr=abc; __Host-cr-2fa=def" } });
+
+    expect(lastCall().headers.get("cookie")).toBe("__Host-cr=abc; __Host-cr-2fa=def");
+  });
+
   it("passes the status, the body and the headers that matter, including a rate limit's Retry-After", async () => {
     fetchMock.mockImplementation(answer('{"title":"Too many requests"}', { status: 429, headers: { "Content-Type": "application/problem+json", "Retry-After": "42", "Cache-Control": "no-store" } }));
 

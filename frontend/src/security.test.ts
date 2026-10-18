@@ -98,6 +98,7 @@ describe("what the site is served under", () => {
     expect(directives["default-src"]).toEqual(["'none'"]);
     expect(directives["frame-ancestors"]).toEqual(["'none'"]);
     expect(directives["base-uri"]).toEqual(["'none'"]);
+    expect(directives["object-src"]).toEqual(["'none'"]);
     expect(directives["form-action"]).toEqual(["'self'"]);
   });
 

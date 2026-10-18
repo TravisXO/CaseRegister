@@ -8,7 +8,7 @@ namespace CaseRegister.Tests.Hardening;
 
 public sealed class ResponseHeaderTests(NoDatabaseApp app) : IClassFixture<NoDatabaseApp>
 {
-    private const string StrictPolicy = "default-src 'none'; frame-ancestors 'none'";
+    private const string StrictPolicy = "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
     [Theory]
     [InlineData("GET", "/probe/ip", 200)] // a success
@@ -131,5 +131,17 @@ public sealed class ResponseHeaderTests(NoDatabaseApp app) : IClassFixture<NoDat
         Assert.True(RequestLimits.AuthBodyBytes < RequestLimits.DefaultBodyBytes);
         Assert.Equal(16, RequestLimits.MaxJsonDepth);
         Assert.Equal(TimeSpan.FromSeconds(30), RequestLimits.RequestTimeout);
+    }
+
+    [Fact]
+    public void The_policy_the_api_sends_closes_off_plugins_a_changed_base_and_framing()
+    {
+        var directives = StrictPolicy.Split(';', StringSplitOptions.TrimEntries).Select(part => part.Split(' ', 2)).ToDictionary(parts => parts[0], parts => parts.Length > 1 ? parts[1] : string.Empty);
+
+        Assert.Equal("'none'", directives["default-src"]);
+        Assert.Equal("'none'", directives["object-src"]);
+        Assert.Equal("'none'", directives["base-uri"]);
+        Assert.Equal("'none'", directives["frame-ancestors"]);
+        Assert.Equal(StrictPolicy, SecurityHeadersMiddleware.ApiContentSecurityPolicy);
     }
 }

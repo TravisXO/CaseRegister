@@ -62,7 +62,7 @@ internal sealed class MemberSignUpService(
     public async Task<SignUpResult> SignUpAsync(SignUpCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default)
     {
         // The bot check comes first, as at sign-in.
-        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, cancellationToken))
+        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, ITurnstileVerifier.Actions.SignUp, cancellationToken))
         {
             return new SignUpResult(SignUpOutcome.BotCheckFailed);
         }

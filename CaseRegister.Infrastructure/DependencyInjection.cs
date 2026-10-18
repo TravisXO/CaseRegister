@@ -340,17 +340,44 @@ public static class DependencyInjection
         services.AddScoped<IBreachedPasswordChecker, ResilientBreachedPasswordChecker>();
 
         services.AddOptions<TurnstileOptions>()
-            .Configure<IConfiguration>((options, configuration) => options.SecretKey = configuration[TurnstileOptions.SecretKeyKey])
+            .Configure<IConfiguration>((options, configuration) =>
+            {
+                options.SecretKey = configuration[TurnstileOptions.SecretKeyKey];
+                options.ExpectedHostname = configuration[TurnstileOptions.ExpectedHostnameKey];
+                options.RequireAction = !bool.TryParse(configuration[TurnstileOptions.RequireActionKey], out var require) || require;
+            })
             .Validate(
                 options => !string.IsNullOrWhiteSpace(options.SecretKey),
                 $"{TurnstileOptions.SecretKeyKey} is not configured. Set it with 'dotnet user-secrets' or the Turnstile__SecretKey environment variable.")
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<TurnstileOptions>, TurnstileOptionsValidator>();
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>(client => client.Timeout = ExternalCalls.ClientTimeout).AddExternalCallResilience();
     }
 }
 
 /// <summary>Stops startup, with the reason, if the audit keys are not usable.</summary>
+/// <summary>Production must say which site the checks are for and must check the form's action: without both, a token earned elsewhere would do.</summary>
+internal sealed class TurnstileOptionsValidator(Microsoft.Extensions.Hosting.IHostEnvironment environment) : IValidateOptions<TurnstileOptions>
+{
+    public ValidateOptionsResult Validate(string? name, TurnstileOptions options)
+    {
+        if (!environment.IsProduction())
+        {
+            return ValidateOptionsResult.Success;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ExpectedHostname))
+        {
+            return ValidateOptionsResult.Fail($"{TurnstileOptions.ExpectedHostnameKey} is not configured. Set the Turnstile__ExpectedHostname environment variable to the hostname of the site (the Pages hostname), so a token earned on another site is refused.");
+        }
+
+        return options.RequireAction
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail($"{TurnstileOptions.RequireActionKey} must not be turned off in Production: it is what stops a token from one form being used on another.");
+    }
+}
+
 internal sealed class PseudonymOptionsValidator : IValidateOptions<PseudonymOptions>
 {
     public ValidateOptionsResult Validate(string? name, PseudonymOptions options) =>
