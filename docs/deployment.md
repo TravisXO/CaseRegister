@@ -338,3 +338,8 @@ After a `suspend-admin` that leaves fewer than two admins, use `seed-admin` (it 
 | Render will not start | Read the log: the message names the missing or wrong setting, never its value. |
 | Everyone is signed out after a deploy | The data protection certificate or its password changed. Put the original back. |
 | **Verify chain** says an anchor is unreadable | R2 could not be reached, or the token is wrong. Anchors already in the bucket are safe. |
+
+## Health checks: what to point at, and what not to
+
+- **`/health/live`** answers "the process is running" and nothing else: it never opens a database connection (a test proves it), so the platform can call it as often as it likes. Render's health check is set to it in `render.yaml`. Uptime monitors, if you add one, should use this one too.
+- **`/health/ready`** asks the database a question. **Do not ping it on a schedule** (not from an uptime monitor, not from a cron job, not from the Pages site): every call that is not already answered from its five-second cache connects to Neon, and a regular ping keeps the compute awake all day, which uses up the free plan's compute hours and defeats the point of Neon suspending itself when nobody is using the system. Use it by hand when you are checking a deployment, and in the smoke test.

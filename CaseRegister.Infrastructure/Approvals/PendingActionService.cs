@@ -85,7 +85,7 @@ internal sealed partial class PendingActionService(
         var outcome = ProposeOutcome.Proposed;
 
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteVerifiedAsync(db, async () =>
         {
             outcome = ProposeOutcome.Proposed;
             db.ChangeTracker.Clear();
@@ -267,7 +267,7 @@ internal sealed partial class PendingActionService(
 
         try
         {
-            await strategy.ExecuteAsync(async () =>
+            await strategy.ExecuteVerifiedAsync(db, async () =>
             {
                 result = null;
                 output = new OperationOutput();
@@ -340,8 +340,8 @@ internal sealed partial class PendingActionService(
                         Detail: AuditText.Fit($"approved action {action.Id}; before: {plan.Before}; after: {plan.After}"), Before: new { state = plan.Before }, After: new { state = plan.After }),
                     cancellationToken);
 
-                await transaction.CommitAsync(cancellationToken);
                 result = new Attempt(ConfirmOutcome.Confirmed, SetupToken: output.SetupToken, Intents: [.. output.Intents], EnrolmentCode: output.EnrolmentCode);
+                await transaction.CommitAsync(cancellationToken);
             });
         }
         catch (DbUpdateConcurrencyException)

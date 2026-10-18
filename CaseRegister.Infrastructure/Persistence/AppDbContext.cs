@@ -16,6 +16,12 @@ namespace CaseRegister.Infrastructure.Persistence;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options), IDataProtectionKeyContext
 {
+    /// <summary>
+    /// The last audit entry appended during the attempt now running. If a commit's acknowledgement is lost, this is how the retrying execution
+    /// strategy tells whether the transaction really committed (its last audit entry is there) before it would run the work a second time.
+    /// </summary>
+    internal (long Sequence, string Hash)? LastAuditAppend { get; set; }
+
     private readonly List<Func<CancellationToken, Task>> _afterCommit = [];
     private bool _anchorRequested;
 

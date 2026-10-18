@@ -170,7 +170,7 @@ internal sealed class StaffSetupService(
 
         try
         {
-            await strategy.ExecuteAsync(async () =>
+            await strategy.ExecuteVerifiedAsync(db, async () =>
             {
                 spent = false;
                 db.ChangeTracker.Clear();
@@ -210,9 +210,9 @@ internal sealed class StaffSetupService(
                     new AuditEntry(AuditAction.StaffSetupCompleted, person.Id, Subject: person.Id.ToString(), IpAddress: remoteIpAddress, Detail: "password set and two-factor enrolled; the account is now Approved"),
                     cancellationToken);
 
-                await transaction.CommitAsync(cancellationToken);
                 recoveryCodes = codes;
                 spent = true;
+                await transaction.CommitAsync(cancellationToken);
             });
         }
         catch (DbUpdateConcurrencyException)

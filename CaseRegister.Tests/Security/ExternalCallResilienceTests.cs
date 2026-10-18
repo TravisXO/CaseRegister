@@ -48,7 +48,7 @@ public sealed class ExternalCallResilienceTests
         });
 
         // Only the network is replaced; the resilience handler sits above it as it does in the application.
-        services.AddHttpClient<IBreachedPasswordChecker, HaveIBeenPwnedClient>().ConfigurePrimaryHttpMessageHandler(() => handler);
+        services.AddHttpClient<HaveIBeenPwnedClient>().ConfigurePrimaryHttpMessageHandler(() => handler);
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>().ConfigurePrimaryHttpMessageHandler(() => handler);
 
         return services.BuildServiceProvider();
@@ -62,7 +62,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, call, _) => call < 3 ? Reply(HttpStatusCode.ServiceUnavailable) : Reply(HttpStatusCode.OK, $"{BreachSuffix}:12"));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.Breached, result);
         Assert.Equal(3, handler.Calls); // the first try and two retries
@@ -74,7 +74,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, _, _) => Reply(HttpStatusCode.InternalServerError));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.Unavailable, result);
         Assert.Equal(3, handler.Calls);
@@ -86,7 +86,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, call, _) => call == 1 ? throw new HttpRequestException("connection reset") : Reply(HttpStatusCode.OK, "0018A45C4D1DEF81644B54AB7F969B88D65:1"));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.NotBreached, result);
         Assert.Equal(2, handler.Calls);
@@ -98,7 +98,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, _, _) => Reply(HttpStatusCode.BadRequest));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.Unavailable, result);
         Assert.Equal(1, handler.Calls);
@@ -116,7 +116,7 @@ public sealed class ExternalCallResilienceTests
         await using var provider = Build(handler);
         var timer = Stopwatch.StartNew();
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
         timer.Stop();
 
         Assert.Equal(BreachCheckResult.Unavailable, result);
@@ -206,7 +206,7 @@ public sealed class ExternalCallResilienceTests
         using var provider = services.BuildServiceProvider();
 
         var options = provider.GetRequiredService<IOptionsMonitor<Microsoft.Extensions.Http.Resilience.HttpStandardResilienceOptions>>();
-        foreach (var name in new[] { "IBreachedPasswordChecker-standard", "ITurnstileVerifier-standard" })
+        foreach (var name in new[] { "HaveIBeenPwnedClient-standard", "ITurnstileVerifier-standard" })
         {
             var settings = options.Get(name);
 

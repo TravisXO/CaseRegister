@@ -166,7 +166,7 @@ internal sealed class MemberSignUpService(
 
         try
         {
-            await strategy.ExecuteAsync(async () =>
+            await strategy.ExecuteVerifiedAsync(db, async () =>
             {
                 created = null;
                 db.ChangeTracker.Clear();
@@ -186,8 +186,8 @@ internal sealed class MemberSignUpService(
                 await db.SaveChangesAsync(cancellationToken);
 
                 await LogAsync(AuditAction.MemberSignedUp, user.Id, flags, claims, remoteIpAddress, cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
                 created = user.Id;
+                await transaction.CommitAsync(cancellationToken);
             });
         }
         catch (DbUpdateException)
@@ -202,7 +202,7 @@ internal sealed class MemberSignUpService(
     private async Task ReapplyAsync(ApplicationUser user, Claims claims, string? remoteIpAddress, CancellationToken cancellationToken)
     {
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteVerifiedAsync(db, async () =>
         {
             db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);

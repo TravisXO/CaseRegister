@@ -6,6 +6,7 @@ import { SessionTimeout } from "../auth/SessionTimeout";
 import { hasRole, useSession } from "../auth/session";
 import { useNotifications } from "../notifications/notifications";
 import { DemoNotice } from "./DemoNotice";
+import { StartingUpNotice } from "./StartingUpNotice";
 
 export interface MenuItem {
   to: string;
@@ -101,6 +102,7 @@ export function Layout() {
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <DemoNotice />
+      <StartingUpNotice />
       <SessionTimeout />
       {/* Said aloud politely when the person has just done something with a notification. It is never changed by the page moving on. */}
       <div role="status" aria-live="polite" className="sr-only">

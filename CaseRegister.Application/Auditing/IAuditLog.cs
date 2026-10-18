@@ -59,6 +59,7 @@ public enum AuditAction
     EnrolmentCodeUsed,
     ListViewed,
     AnchorDeferred,
+    PasswordCheckFallbackUsed,
     BreakGlassUsed,
     BreakGlassRefused,
 }

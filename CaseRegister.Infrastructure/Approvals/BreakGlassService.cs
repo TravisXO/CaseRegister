@@ -70,7 +70,7 @@ internal sealed class BreakGlassService(
         OperationContext context = null!;
 
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteVerifiedAsync(db, async () =>
         {
             context = new OperationContext(Guid.Empty, userId, null, ActionPayloads.Empty) { BypassAdminFloor = type == PendingActionType.SuspendUser };
             db.ChangeTracker.Clear();
@@ -123,8 +123,8 @@ internal sealed class BreakGlassService(
                     Detail: AuditText.Fit($"{command} from the command line; reason: {reason.Trim()}")),
                 cancellationToken);
 
-            await transaction.CommitAsync(cancellationToken);
             result = new BreakGlassResult(BreakGlassOutcome.Done, EnrolmentCode: context.Output.EnrolmentCode);
+            await transaction.CommitAsync(cancellationToken);
         });
 
         if (result is { Outcome: BreakGlassOutcome.Done })

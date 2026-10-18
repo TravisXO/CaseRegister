@@ -332,6 +332,7 @@ internal sealed partial class ChainedAuditLog(
             var record = await store.BuildForAppendAsync(sequence + 1, lastHash, entry, now, cancellationToken);
             db.AuditLog.Add(record);
             await db.SaveChangesAsync(cancellationToken);
+            db.LastAuditAppend = (record.Sequence, record.EntryHash);
 
             await db.AuditChainHeads.Where(row => row.Id == AuditChainHead.OnlyId).ExecuteUpdateAsync(
                 set => set

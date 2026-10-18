@@ -75,3 +75,15 @@ docker run --rm -v //var/run/docker.sock:/var/run/docker.sock -e TESTCONTAINERS_
 ```
 
 where `Dockerfile.linuxtest` is the SDK image (`mcr.microsoft.com/dotnet/sdk:10.0`) with the repository copied in, `dotnet build` of the test project, and `dotnet test --no-build` as the entry point. The tests that need PostgreSQL start it as a sibling container through the mounted Docker socket.
+
+## A run where 13 tests timed out connecting to PostgreSQL
+
+One full run on a Windows machine (16 October) failed 13 tests in a row (most of `SignInTests`, two in `SessionTests`, two in `SessionManagementTests`), each after exactly 15 seconds, with `Npgsql.NpgsqlException: The operation has timed out`. It has not come back in the runs since. What was found:
+
+- **Not pool exhaustion.** The error was raised in `NpgsqlConnector.ConnectAsync`, while opening the first connection of a new pool (the TCP connection and handshake), not while waiting for a free connection. Exhaustion would have said "the connection pool has been exhausted" and failed at once. Each test database also has its own small pool, and the server allows 500 connections.
+- **Not parallel test collections.** All 50 database test classes are in one xUnit collection (`PostgresTestGroup`), so they run one after the other, never together. The 13 were consecutive, which fits one stall that lasted a few minutes, not contention.
+- **Not container start-up.** The first four minutes of the run passed; the failures began later and the tests after the 13 passed.
+- **Not an IPv6/`localhost` delay.** The fixture connects to `127.0.0.1`. Opening 400 new connections in a row to the container afterwards took 27 ms at best, 32 ms median and 79 ms at worst, with no outlier.
+- **Most likely a stall in Docker Desktop's port forwarding (or the host being starved) for a few minutes**: the only thing left that explains many consecutive, otherwise healthy tests each waiting out the default 15-second connect timeout and then recovering. It could not be reproduced, so this is the best explanation, not a proven one.
+
+No retry was added to the fixture, because a retry would hide a stall rather than explain it. If it happens again: note the time, check whether Docker Desktop was restarting or the machine was under load (a second heavy job, a sleep/wake), and look at the Docker Desktop logs for that time. A failure like this in CI (Linux, a real Docker daemon) would be a different, and more worrying, thing.

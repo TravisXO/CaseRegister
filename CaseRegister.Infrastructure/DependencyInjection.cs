@@ -78,6 +78,9 @@ public static class DependencyInjection
 
             AppDbContextOptions.Configure(builder, connectionString);
             builder.AddInterceptors(provider.GetRequiredService<EntityTimestampInterceptor>(), provider.GetRequiredService<AfterCommitInterceptor>());
+
+            // Nothing registers more in the application. Tests do, to make a connection drop at an awkward moment.
+            builder.AddInterceptors(provider.GetServices<Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor>());
         });
     }
 
@@ -311,12 +314,15 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<ExternalCallOptions>, ExternalCallOptionsValidator>();
         services.AddOptions<ExternalCallOptions>().BindConfiguration(ExternalCallOptions.SectionName).ValidateOnStart();
 
-        services.AddHttpClient<IBreachedPasswordChecker, HaveIBeenPwnedClient>(client =>
+        services.AddHttpClient<HaveIBeenPwnedClient>(client =>
         {
             client.BaseAddress = new Uri(HaveIBeenPwnedClient.BaseAddress);
             client.Timeout = ExternalCalls.ClientTimeout;
             client.DefaultRequestHeaders.UserAgent.ParseAdd(ApplicationName);
         }).AddExternalCallResilience();
+
+        // Have I Been Pwned first; the bundled list, with a note in the audit log, only if it cannot be reached.
+        services.AddScoped<IBreachedPasswordChecker, ResilientBreachedPasswordChecker>();
 
         services.AddOptions<TurnstileOptions>()
             .Configure<IConfiguration>((options, configuration) => options.SecretKey = configuration[TurnstileOptions.SecretKeyKey])

@@ -214,11 +214,13 @@ describe("the source", () => {
     expect(found).toEqual([]);
   });
 
-  it("has timers in one place only: the session timeout warning, and never a repeating one", () => {
+  it("has timers in two places only, each one a single timeout and never a repeating one: the session timeout warning and the one retry of a read while the server starts", () => {
     const withTimers = files.filter((file) => /\b(setTimeout|setInterval)\b/.test(readFileSync(file, "utf8")));
 
-    expect(withTimers.map((file) => relative("src", file).replaceAll("\\", "/"))).toEqual(["auth/SessionTimeout.tsx"]);
-    expect(readFileSync("src/auth/SessionTimeout.tsx", "utf8")).not.toMatch(/setInterval/);
+    expect(withTimers.map((file) => relative("src", file).replaceAll("\\", "/")).sort()).toEqual(["api/startup.ts", "auth/SessionTimeout.tsx"]);
+    for (const file of withTimers) {
+      expect(readFileSync(file, "utf8")).not.toMatch(/setInterval/);
+    }
   });
 
   it("never touches the browser's storage while the app is used", async () => {
