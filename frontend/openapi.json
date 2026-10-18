@@ -5942,6 +5942,11 @@
           "verifiedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "newerAnchors": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
           }
         }
       },

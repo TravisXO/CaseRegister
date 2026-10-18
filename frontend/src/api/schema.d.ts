@@ -4192,6 +4192,11 @@ export interface components {
             firstBreak: (null) | components["schemas"]["AuditBreak"];
             /** Format: date-time */
             verifiedAt: string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            newerAnchors: number;
         };
         CertificateInfo: {
             /** Format: uuid */
