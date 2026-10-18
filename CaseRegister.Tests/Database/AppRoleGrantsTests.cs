@@ -21,6 +21,16 @@ public partial class AppRoleGrantsTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task The_unused_lockout_table_and_the_duplicate_enrolment_column_are_gone_and_the_other_used_at_columns_stay()
+    {
+        var owner = await MigratedDatabaseWithGrantsAsync();
+
+        Assert.Equal(0, await PostgresFixture.ScalarAsync<long>(owner, "SELECT count(*) FROM information_schema.tables WHERE table_name = 'lockout_events'"));
+        Assert.Equal(0, await PostgresFixture.ScalarAsync<long>(owner, "SELECT count(*) FROM information_schema.columns WHERE table_name = 'enrolment_codes' AND column_name = 'completed_at'"));
+        Assert.Equal(1, await PostgresFixture.ScalarAsync<long>(owner, "SELECT count(*) FROM information_schema.columns WHERE table_name = 'enrolment_codes' AND column_name = 'used_at'"));
+    }
+
+    [Fact]
     public async Task The_app_role_can_read_and_write_data_on_existing_and_future_tables()
     {
         var owner = await MigratedDatabaseWithGrantsAsync();
@@ -94,7 +104,6 @@ public partial class AppRoleGrantsTests(PostgresFixture postgres)
     [InlineData("users")]
     [InlineData("user_authenticators")]
     [InlineData("recovery_codes")]
-    [InlineData("lockout_events")]
     public async Task Nothing_that_must_be_kept_can_be_deleted_by_the_app_role(string table)
     {
         var owner = await MigratedDatabaseWithGrantsAsync();

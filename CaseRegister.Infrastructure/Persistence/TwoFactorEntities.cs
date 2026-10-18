@@ -61,7 +61,7 @@ public sealed class RecoveryCodeRecord : Entity
 /// <summary>
 /// The one-time code made when an admin's reset (or the command line) removes a person's two-factor. Only its hash is stored. The person
 /// needs it, with their password, before they can set two-factor up again. It can be typed in again and again within 72 hours until the person has
-/// finished enrolling (<see cref="CompletedAt"/>, which is also when <see cref="UsedAt"/> is set): someone who abandons set-up can come back. Until
+/// finished enrolling (<see cref="UsedAt"/>): someone who abandons set-up can come back. Until
 /// then a plain password sign-in never gets in, so a half-finished enrolment does not leave the account open to anyone who has the password.
 /// </summary>
 public sealed class EnrolmentCodeRecord : Entity
@@ -83,17 +83,17 @@ public sealed class EnrolmentCodeRecord : Entity
 
     public DateTimeOffset ExpiresAt { get; private set; }
 
-    /// <summary>When the code was used up: the moment enrolment was finished with it. Not set by merely typing the code in.</summary>
+    /// <summary>
+    /// When the code was used up: the moment the person finished setting two-factor up with it. Not set by merely typing the code in. Until then
+    /// the account has to go through the code.
+    /// </summary>
     public DateTimeOffset? UsedAt { get; set; }
-
-    /// <summary>When the person finished setting two-factor up. Until then the account has to go through the code.</summary>
-    public DateTimeOffset? CompletedAt { get; set; }
 
     /// <summary>Set when a newer code replaced this one.</summary>
     public DateTimeOffset? RevokedAt { get; set; }
 
     /// <summary>Still standing in the way of a plain password sign-in: not finished and not replaced.</summary>
-    public bool IsOutstanding => CompletedAt is null && RevokedAt is null;
+    public bool IsOutstanding => UsedAt is null && RevokedAt is null;
 }
 
 /// <summary>

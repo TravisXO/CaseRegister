@@ -86,6 +86,9 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
+      # The rest of the lint group moves with ESLint 10, so a major of @eslint/js (and any other @eslint package) waits for it too. Plugins are not held here: they already say which ESLint they support.
+      - dependency-name: "@eslint/*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"

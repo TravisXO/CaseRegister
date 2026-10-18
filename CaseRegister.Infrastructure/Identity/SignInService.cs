@@ -71,7 +71,7 @@ internal sealed class SignInService(
         }
 
         // After a reset the one-time enrolment code comes first. The same short-lived step cookie remembers who passed the password.
-        if (await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null, cancellationToken))
+        if (await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.UsedAt == null && code.RevokedAt == null, cancellationToken))
         {
             var codeStep = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())],

@@ -67,14 +67,14 @@ BEGIN
 END
 $$;
 
--- Nothing is hard-deleted. Accounts, agencies, certificates, proposals, authenticators, recovery codes and lockout history are retired or
+-- Nothing is hard-deleted. Accounts, agencies, certificates, proposals, authenticators, recovery codes and the other records that matter are retired or
 -- marked, never removed, so the application role may not delete from them. (Sessions are the exception:
 -- ending one means deleting its row, on purpose.)
 DO $$
 DECLARE
     protected_table text;
 BEGIN
-    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'lockout_events', 'agencies', 'practising_certificates', 'pending_actions', 'member_applications', 'staff_setup_tokens']
+    FOREACH protected_table IN ARRAY ARRAY['users', 'user_authenticators', 'recovery_codes', 'agencies', 'practising_certificates', 'pending_actions', 'member_applications', 'staff_setup_tokens']
     LOOP
         IF to_regclass(format('public.%I', protected_table)) IS NOT NULL THEN
             EXECUTE format('REVOKE DELETE, TRUNCATE ON TABLE public.%I FROM case_register_app', protected_table);

@@ -317,6 +317,20 @@ public sealed partial class WorkflowFilesTests
     }
 
     [Fact]
+    public void Dependabot_holds_back_major_versions_of_eslint_and_its_own_packages_until_eslint_10_is_taken_on_purpose()
+    {
+        var config = Read(".github", "dependabot.yml");
+        var npm = config[config.IndexOf("package-ecosystem: npm", StringComparison.Ordinal)..config.IndexOf("package-ecosystem: github-actions", StringComparison.Ordinal)];
+
+        foreach (var name in new[] { "eslint", "@eslint/*" })
+        {
+            Assert.Matches($@"- dependency-name: ""{Regex.Escape(name)}""\n\s+update-types: \[""version-update:semver-major""\]", npm);
+        }
+
+        Assert.Contains("\"@eslint/*\"", npm[npm.IndexOf("lint:", StringComparison.Ordinal)..], StringComparison.Ordinal); // and the group that gathers them still does
+    }
+
+    [Fact]
     public void Dependabot_has_exactly_those_four_ecosystems()
     {
         var config = Read(".github", "dependabot.yml");

@@ -206,7 +206,6 @@ public sealed class EnrolmentCodeTests(PostgresFixture postgres)
         // Enrolment is finished: the code is used up for good.
         var used = Assert.Single(await world.Codes());
         Assert.NotNull(used.UsedAt);
-        Assert.NotNull(used.CompletedAt);
         var after = world.Factory.CreateApiClient();
         Assert.Equal("two-factor-required", await TwoFactorFlows.StatusAsync(await after.SignInAsync(world.Person.Email!)));
         Assert.Equal(HttpStatusCode.Unauthorized, (await RedeemAsync(after, code)).StatusCode);

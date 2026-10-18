@@ -868,10 +868,6 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("code_hash");
 
-                    b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("completed_at");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -910,39 +906,6 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_enrolment_codes_user_id_code_hash");
 
                     b.ToTable("enrolment_codes", (string)null);
-                });
-
-            modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.LockoutEvent", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.Property<uint>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id")
-                        .HasName("pk_lockout_events");
-
-                    b.HasIndex("UserId", "CreatedAt")
-                        .HasDatabaseName("ix_lockout_events_user_id_created_at");
-
-                    b.ToTable("lockout_events", (string)null);
                 });
 
             modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.RecoveryCodeRecord", b =>
@@ -1524,16 +1487,6 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_enrolment_codes_users_user_id");
-                });
-
-            modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.LockoutEvent", b =>
-                {
-                    b.HasOne("CaseRegister.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_lockout_events_users_user_id");
                 });
 
             modelBuilder.Entity("CaseRegister.Infrastructure.Persistence.RecoveryCodeRecord", b =>

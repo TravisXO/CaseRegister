@@ -104,12 +104,11 @@ internal sealed class TwoFactorService(
         await users.UpdateAsync(user);
 
         // Enrolled: the reset is finished, so a plain password sign-in leads to the authenticator's code from now on.
-        var finishing = await db.EnrolmentCodes.Where(r => r.UserId == userId && r.CompletedAt == null && r.RevokedAt == null).ToListAsync(cancellationToken);
+        var finishing = await db.EnrolmentCodes.Where(r => r.UserId == userId && r.UsedAt == null && r.RevokedAt == null).ToListAsync(cancellationToken);
         foreach (var finished in finishing)
         {
             // Only now is the code used up. Until enrolment is finished it stays good for its 72 hours, so someone who abandons set-up can come back.
-            finished.CompletedAt = timeProvider.GetUtcNow();
-            finished.UsedAt = finished.CompletedAt;
+            finished.UsedAt = timeProvider.GetUtcNow();
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -223,7 +222,7 @@ internal sealed class TwoFactorService(
         var now = timeProvider.GetUtcNow();
         var hash = EnrolmentCodes.Hash(code);
         var record = EnrolmentCodes.LooksLikeEnrolmentCode(code)
-            ? await db.EnrolmentCodes.AsNoTracking().SingleOrDefaultAsync(r => r.UserId == userId && r.CodeHash == hash && r.CompletedAt == null && r.RevokedAt == null, cancellationToken)
+            ? await db.EnrolmentCodes.AsNoTracking().SingleOrDefaultAsync(r => r.UserId == userId && r.CodeHash == hash && r.UsedAt == null && r.RevokedAt == null, cancellationToken)
             : null;
 
         // The code is not used up by being typed in: it is used up when enrolment is finished (see ConfirmEnrolmentAsync).
@@ -324,7 +323,7 @@ internal sealed class TwoFactorService(
     /// <summary>A reset is waiting to be finished for this person and this session did not come through the enrolment code.</summary>
     private async Task<bool> NeedsEnrolmentCodeAsync(Guid userId, CancellationToken cancellationToken) =>
         !signInManager.Context.User.HasClaim(claim => claim.Type == AuthenticationClaims.EnrolmentCode)
-        && await db.EnrolmentCodes.AnyAsync(code => code.UserId == userId && code.CompletedAt == null && code.RevokedAt == null, cancellationToken);
+        && await db.EnrolmentCodes.AnyAsync(code => code.UserId == userId && code.UsedAt == null && code.RevokedAt == null, cancellationToken);
 
 
     private async Task<Check> CheckAsync(

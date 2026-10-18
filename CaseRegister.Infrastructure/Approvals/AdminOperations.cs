@@ -320,7 +320,7 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
         }
 
         var authenticator = await db.Authenticators.SingleOrDefaultAsync(record => record.UserId == user.Id, cancellationToken);
-        var waitingForEnrolment = await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null, cancellationToken);
+        var waitingForEnrolment = await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.UsedAt == null && code.RevokedAt == null, cancellationToken);
         if (authenticator is null && !waitingForEnrolment)
         {
             return OperationPlan.Refuse("NothingToReset", "The account has no two-factor set up, so there is nothing to reset.");
@@ -352,7 +352,7 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
                 await SessionEnding.EndAllAsync(users, db, user, token);
 
                 // A newer code replaces any that was never used or finished. Only the hash is kept.
-                var older = await db.EnrolmentCodes.Where(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null).ToListAsync(token);
+                var older = await db.EnrolmentCodes.Where(code => code.UserId == user.Id && code.UsedAt == null && code.RevokedAt == null).ToListAsync(token);
                 foreach (var code in older)
                 {
                     code.RevokedAt = now;

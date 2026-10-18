@@ -68,7 +68,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<AuditChainHead> AuditChainHeads => Set<AuditChainHead>();
 
-    public DbSet<LockoutEvent> LockoutEvents => Set<LockoutEvent>();
 
     public DbSet<AuthenticatorRecord> Authenticators => Set<AuthenticatorRecord>();
 

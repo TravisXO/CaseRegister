@@ -183,19 +183,6 @@ internal sealed class UserSessionConfiguration : IEntityTypeConfiguration<UserSe
     }
 }
 
-internal sealed class LockoutEventConfiguration : IEntityTypeConfiguration<LockoutEvent>
-{
-    public void Configure(EntityTypeBuilder<LockoutEvent> builder)
-    {
-        builder.ToTable("lockout_events");
-
-        // Nothing is hard-deleted, so an account with history cannot be removed from under it.
-        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
-
-        builder.HasIndex(e => new { e.UserId, e.CreatedAt });
-    }
-}
-
 internal sealed class AgencyConfiguration : IEntityTypeConfiguration<Agency>
 {
     public void Configure(EntityTypeBuilder<Agency> builder)
