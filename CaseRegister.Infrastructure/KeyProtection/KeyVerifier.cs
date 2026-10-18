@@ -17,6 +17,7 @@ public sealed record KeyCheck(string Name, bool Passed, string Detail);
 public sealed class KeyVerifier
 {
     private readonly IAuditKeyring _auditKeys;
+    private readonly IPseudonymiser _pseudonyms;
     private readonly DataProtectionCertificates _certificates;
     private readonly IKeyManager _keyManager;
     private readonly AuthenticatorKeyProtector _authenticatorKeys;
@@ -25,6 +26,7 @@ public sealed class KeyVerifier
 
     public KeyVerifier(
         IAuditKeyring auditKeys,
+        IPseudonymiser pseudonyms,
         DataProtectionCertificates certificates,
         IKeyManager keyManager,
         AuthenticatorKeyProtector authenticatorKeys,
@@ -32,6 +34,7 @@ public sealed class KeyVerifier
         AppDbContext db)
     {
         _auditKeys = auditKeys;
+        _pseudonyms = pseudonyms;
         _certificates = certificates;
         _keyManager = keyManager;
         _authenticatorKeys = authenticatorKeys;
@@ -44,6 +47,7 @@ public sealed class KeyVerifier
         List<KeyCheck> checks =
         [
             new("Audit keys", true, $"{_auditKeys.Accepted.Count} key(s) loaded: {string.Join(", ", _auditKeys.Accepted.Select(key => key.Id).Order(StringComparer.Ordinal))}; signing with '{_auditKeys.Current.Id}'."),
+            new("Pseudonymisation keys", true, $"{_pseudonyms.KeyIds.Count} key(s) loaded: {string.Join(", ", _pseudonyms.KeyIds)}; making labels with '{_pseudonyms.CurrentKeyId}'."),
             new("Data protection certificates", true, $"{_certificates.All.Count} certificate(s) loaded (1 current, {_certificates.Previous.Count} older); the current one is valid until {_certificates.Current.NotAfter:yyyy-MM-dd}."),
         ];
 

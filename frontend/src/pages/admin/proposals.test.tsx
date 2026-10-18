@@ -23,6 +23,7 @@ const proposal = (overrides: Partial<PendingAction> = {}): PendingAction => ({
   decidedByUserId: null,
   decidedAt: null,
   decisionReason: null,
+  decidedByName: null,
   lastRefusal: null,
   ...overrides,
 });
@@ -38,13 +39,12 @@ describe("confirming a proposal", () => {
     open(proposal());
 
     expect(await screen.findByText(/Approve the application of Chanda Banda/)).toBeInTheDocument();
-    expect(screen.getByText("Carol Zulu")).toBeInTheDocument();
+    expect(screen.getByText(/^Carol Zulu, 13 Oct 2026, 10:05 \(Zambian time\) \(/)).toBeInTheDocument();
     expect(screen.getByText("I checked the certificate against the association's list.")).toBeInTheDocument();
     expect(screen.getByText('A new agency called "Lusaka Homes" will be created for them.')).toBeInTheDocument();
     expect(screen.getByText("Another account or another waiting application claims the same membership number.")).toBeInTheDocument();
     // 08:05 UTC is 10:05 in Zambia.
-    expect(screen.getByText("13 Oct 2026, 10:05 (Zambian time)")).toBeInTheDocument();
-    expect(screen.getByText("16 Oct 2026, 10:05 (Zambian time)")).toBeInTheDocument();
+    expect(screen.getByText(/16 Oct 2026, 10:05 \(Zambian time\) \(/)).toBeInTheDocument();
     expect(screen.getByText(/Fingerprint of exactly this proposal: 9f2c4e7a1b6d8035…/)).toBeInTheDocument();
   });
 
@@ -155,7 +155,7 @@ describe("confirming a proposal", () => {
       },
     });
     renderApp(`/admin/proposals/${invite.id}`);
-    expect(await screen.findByText("Dan Mumba, dan@example.test, role CaseReviewer")).toBeInTheDocument();
+    expect(await screen.findByText("Dan Mumba, dan@example.test, as Case reviewer")).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Code from your authenticator app"), "654321");
 
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));

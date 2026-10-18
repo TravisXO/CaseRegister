@@ -20,6 +20,7 @@ Every secret is an environment variable. None is in `render.yaml` (it asks for e
 | Setting | Where it is set | What it is, and how to make it | If it is lost |
 | --- | --- | --- | --- |
 | `Audit__Keys__k1` | Render | The key that signs the audit chain: 32 random bytes, base64. `New-ProductionKeys.ps1` makes it. | **The audit chain can never be verified again.** Back it up before anything else. |
+| `Pseudonym__Keys__p1` (and `Pseudonym__CurrentKeyId` = `p1`, already in the app's settings) | Render | The key that turns an email address in an audit entry into a keyed hash (HMAC-SHA256) with the key's id, so the log never holds an address or a plain hash of one: 32 random bytes, base64. `New-ProductionKeys.ps1` makes it. Every key ever used stays configured. | Old entries still read; nobody can test any more whether an address appears in them. See `docs/runbooks/key-recovery.md`. |
 | `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` | Render | The certificate that encrypts the data protection keys kept in the database: a base64 PFX and its password. `New-ProductionKeys.ps1` makes both. | The stored keys cannot be read: every session ends and every enrolled authenticator becomes unreadable (everyone would have to set up two-factor again). |
 | `Proxy__Secret` | Render | The secret the proxy sends: 64 random characters. `New-ProductionKeys.ps1` makes it. | Make a new one (see "Rotating the proxy secret"). |
 | `PROXY_SECRET` | Cloudflare Pages (production, as a secret) | The same value as `Proxy__Secret`. | As above. |
@@ -82,7 +83,7 @@ On your machine, in PowerShell, from the repository folder:
 
 It writes each secret to its own file in that folder (which must be outside any git repository), prints only the file names and which setting each belongs in, and tells you when the certificate expires. It prints no secret.
 
-1. Copy every file into your password manager. **The audit key and the certificate cannot be made again.**
+1. Copy every file into your password manager. **The audit key, the pseudonymisation key and the certificate cannot be made again.**
 2. Write the certificate's **expiry date** (the script prints it; it is five years from the day you made it) in your calendar, two months early. Replacing it is supported (the old one is kept for reading; see `docs/runbooks/key-recovery.md`), but do not leave it to the last week.
 3. Delete the folder when everything is in the password manager.
 
@@ -123,7 +124,7 @@ Write down the project's address (without `https://`): it is your **Pages hostna
 ## 6. Render: the API
 
 1. Render dashboard → **New → Blueprint** → connect this repository, branch `main`. Render reads `render.yaml`: a Docker web service called `caseregister-api` in **Frankfurt** on the **free** plan, health check `/health/live`, `ASPNETCORE_ENVIRONMENT=Production`, and **auto-deploy only after the CI checks pass**.
-2. Render asks for each setting marked `sync: false`. Give it the values from your password manager (table above): `ConnectionStrings__Default`, `Audit__Keys__k1`, the four `Audit__R2__*`, the two `DataProtection__*`, `Turnstile__SecretKey`, `Proxy__Secret`, and `Invites__SetupPageUrl` = `https://<Pages hostname>/staff/setup`. **Do not** give it `ConnectionStrings__Migrations`.
+2. Render asks for each setting marked `sync: false`. Give it the values from your password manager (table above): `ConnectionStrings__Default`, `Audit__Keys__k1`, `Pseudonym__Keys__p1`, the four `Audit__R2__*`, the two `DataProtection__*`, `Turnstile__SecretKey`, `Proxy__Secret`, and `Invites__SetupPageUrl` = `https://<Pages hostname>/staff/setup`. **Do not** give it `ConnectionStrings__Migrations`.
 3. Apply. The first build takes several minutes. The service gets an address like `https://caseregister-api.onrender.com` (read the real one off the service page): that is the **API origin**.
 4. The service starts and answers `/health/live`, but nothing else works until the database has its tables (step 8).
 
@@ -163,7 +164,7 @@ What each command needs in its environment (set with `$env:Name = Ask 'Name'`):
 | Command | Variables |
 | --- | --- |
 | `migrate` | `ConnectionStrings__Migrations` |
-| `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit`, `verify-keys` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
+| `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit`, `verify-keys` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Pseudonym__Keys__p1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
 
 For `verify-audit` and `verify-keys` put the **read-only** R2 token's key id and secret in `Audit__R2__AccessKeyId` and `Audit__R2__SecretAccessKey` (step 3 of the R2 section); they only read anchors. `anchor-audit` and `seed-admin` and the break-glass commands write audit entries and, through them, anchors, so they need the application's token.
 

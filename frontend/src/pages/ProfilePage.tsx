@@ -8,6 +8,7 @@ import { Empty, Loaded } from "../components/States";
 import { useSession } from "../auth/session";
 import { errorFor, problemsFrom, required, type Problems } from "../lib/forms";
 import { useLoad, useSubmit } from "../lib/hooks";
+import { rolesText } from "../lib/roles";
 import { currentZambianYear, formatCalendarDate, formatZambianTime } from "../lib/time";
 
 function certificateStatus(certificate: CertificateInfo): string {
@@ -276,7 +277,7 @@ export function ProfilePage() {
           </>
         )}
         <dt className="font-medium">Roles</dt>
-        <dd>{profile.roles.length === 0 ? "None yet" : profile.roles.join(", ")}</dd>
+        <dd>{rolesText(profile.roles)}</dd>
         <dt className="font-medium">Last signed in</dt>
         <dd>
           {profile.lastSignIn === null

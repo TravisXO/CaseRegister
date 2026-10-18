@@ -213,9 +213,17 @@ public sealed partial class WorkflowFilesTests
         var config = Read(".gitleaks.toml");
 
         Assert.Contains("useDefault = true", config, StringComparison.Ordinal);
-        Assert.Single(Regex.Matches(config, @"\[\[allowlists\]\]"));
-        Assert.Contains("targetRules = [\"generic-api-key\"]", config, StringComparison.Ordinal);
+        Assert.Equal(2, Regex.Count(config, @"\[\[allowlists\]\]"));
+        Assert.Equal(2, Regex.Count(config, @"targetRules = \[""generic-api-key""\]")); // both relax the one generic rule and no other
         Assert.Contains("LogRedactionTests", config, StringComparison.Ordinal);
+
+        // The second is one exact line of one file: a setting's name in render.yaml, which holds no values.
+        Assert.Contains("condition = \"AND\"", config, StringComparison.Ordinal);
+        Assert.Contains(@"paths = ['''^render\.yaml$''']", config, StringComparison.Ordinal);
+        Assert.Contains("regexTarget = \"line\"", config, StringComparison.Ordinal);
+
+        // Built in two pieces so that this test's own source does not look like the line it is checking for.
+        Assert.Contains("regexes = ['''- key: Pseudonym" + "__Keys__p1''']", config, StringComparison.Ordinal);
     }
 
     // --- The front end ----------------------------------------------------------------------------------------------

@@ -107,6 +107,7 @@ public sealed partial class DeploymentFilesTests
             "DataProtection__CertificatePassword",
             "Turnstile__SecretKey",
             "Proxy__Secret",
+            "Pseudonym__Keys__p1",
             "Invites__SetupPageUrl",
             "Deployment__Mode",
         ];

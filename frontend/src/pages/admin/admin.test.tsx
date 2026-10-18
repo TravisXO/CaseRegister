@@ -303,6 +303,8 @@ describe("the audit log", () => {
         detail: "approved a proposal",
         before: { state: "Pending" },
         after: { state: "Approved" },
+        actorName: "Brian Phiri",
+        targetName: "Chanda Banda",
       },
     ],
     page: 1,

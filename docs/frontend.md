@@ -53,6 +53,10 @@ These are enforced by lint rules and tests, not just written down:
 - All API calls go through `src/api/client.ts`: the anti-forgery token (fetched when first needed, sent on every POST, PUT, PATCH and DELETE, fetched again after signing in), same-origin cookies, and errors shown as a message and a trace id and nothing else.
 - Menus show only what the person's roles allow. The API is the real gatekeeper; the menu is a convenience.
 
+## Names, not ids
+
+The audit log and the proposals are read by names. The API gives each audit entry `actorName` and `targetName`; an admin is given every name, and a compliance officer only the names of people in their own agency (anyone else is shown by role, such as "An admin"). Ids stay available to admins behind an expand (`IDs` on an audit row, `Technical details` on a proposal). Times are the exact Zambian time with how long ago in brackets (worked out when the page is drawn; nothing refreshes it). Roles are always said in words from one map, `src/lib/roles.ts` (the server's sentences use `RoleLabels.cs`, the same words). An email address is never in the log: it is a keyed hash (`email-hmac:<key id>:...`; older entries carry a plain hash, `email-sha256:...`, and are shown the same way, as "An email address (kept only as a code)").
+
 ## The demo notice
 
 Every page carries a "Demo: all data is fake" notice, driven by `GET /api/deployment` (the API's `Deployment:Mode`, which can only be `Demo` for now, and without which the API will not start). If the answer has not come or never does, the notice is shown.

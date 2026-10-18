@@ -55,7 +55,7 @@ internal static class AuditTargets
             return None;
         }
 
-        if (entry.Subject.StartsWith("email-sha256:", StringComparison.Ordinal))
+        if (AuditSubject.IsEmailLabel(entry.Subject))
         {
             return "Email";
         }

@@ -24,6 +24,7 @@ const reset = (overrides: Partial<PendingAction> = {}): PendingAction => ({
   decidedByUserId: null,
   decidedAt: null,
   decisionReason: null,
+  decidedByName: null,
   lastRefusal: null,
   ...overrides,
 });

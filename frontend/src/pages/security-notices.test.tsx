@@ -72,7 +72,7 @@ describe("account actions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
 
     expect(await screen.findByText("Account ID: bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")).toBeInTheDocument();
-    expect(screen.getByText("chanda@example.test, approved, RegisteredAgent")).toBeInTheDocument();
+    expect(screen.getByText("chanda@example.test, approved, Registered agent")).toBeInTheDocument();
   });
 
   it("asks for at least three characters before searching", async () => {

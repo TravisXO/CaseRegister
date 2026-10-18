@@ -76,6 +76,7 @@ public sealed record PendingActionResponse(
     DateTimeOffset? DecidedAt,
     string? DecisionReason,
     ProposalRefusal? LastRefusal,
+    string? DecidedByName,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SetupLink = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EnrolmentCode = null);
 
@@ -100,7 +101,9 @@ public sealed record AuditEntryResponse(
     string? IpAddress,
     string? Detail,
     JsonElement? Before,
-    JsonElement? After);
+    JsonElement? After,
+    string? ActorName,
+    string? TargetName);
 
 public sealed record AuditPageResponse(IReadOnlyList<AuditEntryResponse> Entries, int Page, int PageSize, long Total);
 

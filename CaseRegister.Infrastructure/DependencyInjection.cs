@@ -202,6 +202,21 @@ public static class DependencyInjection
 
         services.AddSingleton<IAuditKeyring, AuditKeyring>();
 
+        // The separate key that pseudonymises email addresses in audit entries. Like the audit keys it comes from configuration only, and startup fails without it.
+        services.AddSingleton<IValidateOptions<PseudonymOptions>, PseudonymOptionsValidator>();
+        services.AddOptions<PseudonymOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+            {
+                var section = configuration.GetSection(PseudonymOptions.SectionName);
+                options.CurrentKeyId = section["CurrentKeyId"] ?? string.Empty;
+                foreach (var key in section.GetSection("Keys").GetChildren())
+                {
+                    options.Keys[key.Key] = key.Value ?? string.Empty;
+                }
+            })
+            .ValidateOnStart();
+        services.AddSingleton<IPseudonymiser, Pseudonymiser>();
+
         // Where daily anchors go. Production has a Cloudflare R2 bucket (and refuses to start without one); Development may use a local file
         // or nothing. There is no scheduler: the first audit entry written on a new Zambian day writes that day's anchor (see ChainedAuditLog).
         services.AddHttpClient(R2AuditAnchorSink.ClientName, client => client.Timeout = ExternalCalls.ClientTimeout).AddExternalCallResilience();
@@ -336,6 +351,12 @@ public static class DependencyInjection
 }
 
 /// <summary>Stops startup, with the reason, if the audit keys are not usable.</summary>
+internal sealed class PseudonymOptionsValidator : IValidateOptions<PseudonymOptions>
+{
+    public ValidateOptionsResult Validate(string? name, PseudonymOptions options) =>
+        options.Problem() is { } problem ? ValidateOptionsResult.Fail(problem) : ValidateOptionsResult.Success;
+}
+
 internal sealed class AuditOptionsValidator(Microsoft.Extensions.Hosting.IHostEnvironment environment) : IValidateOptions<AuditOptions>
 {
     public ValidateOptionsResult Validate(string? name, AuditOptions options)

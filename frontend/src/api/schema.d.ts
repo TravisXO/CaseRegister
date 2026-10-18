@@ -4166,6 +4166,8 @@ export interface components {
             detail: string | null;
             before: (null) | components["schemas"]["JsonElement"];
             after: (null) | components["schemas"]["JsonElement"];
+            actorName: string | null;
+            targetName: string | null;
         };
         AuditPageResponse: {
             entries: components["schemas"]["AuditEntryResponse"][];
@@ -4283,6 +4285,7 @@ export interface components {
             decidedAt: string | null;
             decisionReason: string | null;
             lastRefusal: (null) | components["schemas"]["ProposalRefusal"];
+            decidedByName: string | null;
             setupLink?: string | null;
             enrolmentCode?: string | null;
         };

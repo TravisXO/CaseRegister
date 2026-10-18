@@ -19,12 +19,13 @@ internal sealed class SignInService(
     CredentialChecker credentials,
     SignInThrottle throttle,
     IAuditLog audit,
+    IPseudonymiser pseudonyms,
     Microsoft.Extensions.Logging.ILogger<SignInService> logger) : ISignInService
 {
     public async Task<SignInStatus> SignInAsync(SignInCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default)
     {
         var email = EmailNormaliser.Normalise(command.Email);
-        var subject = AuditSubject.ForAttemptedEmail(email);
+        var subject = pseudonyms.ForEmail(email);
 
         // Bot check first. A failure looks exactly like any other failed sign-in.
         if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, cancellationToken))

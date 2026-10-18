@@ -1,17 +1,50 @@
 import { useState, type SyntheticEvent } from "react";
 import { api } from "../../api/endpoints";
-import type { AuditVerification } from "../../api/types";
+import type { AuditEntry, AuditVerification } from "../../api/types";
 import { ErrorPanel, Empty, Loaded } from "../../components/States";
 import { TextField } from "../../components/Fields";
 import { hasRole, useSession } from "../../auth/session";
 import { useLoad, useSubmit } from "../../lib/hooks";
-import { formatZambianTime } from "../../lib/time";
+import { roleLabel } from "../../lib/roles";
+import { formatRelative, formatZambianTime } from "../../lib/time";
 
 const PAGE_SIZE = 25;
 
 /** A date as typed (2026-10-13) to the start or end of that day in Zambian time (UTC+2). */
 function zambianBoundary(date: string, end: boolean): string | undefined {
   return date === "" ? undefined : `${date}T${end ? "23:59:59.999" : "00:00:00"}+02:00`;
+}
+
+/** Who did it, in words: their name if the viewer may be told it, otherwise what they were. */
+function whoText(entry: AuditEntry): string {
+  if (entry.actorName !== null) {
+    return entry.actorRole === null || entry.actorRole === "system" ? entry.actorName : `${entry.actorName} (${roleLabel(entry.actorRole)})`;
+  }
+
+  if (entry.actorType === "system" || entry.actorUserId === null) {
+    return "The system";
+  }
+
+  if (entry.actorRole === null || entry.actorRole === "unknown") {
+    return "Someone";
+  }
+
+  const role = roleLabel(entry.actorRole).toLowerCase();
+
+  return `${/^[aeiou]/.test(role) ? "An" : "A"} ${role}`;
+}
+
+/** What it was done to, in words. An email address is never shown: the log keeps a code for it, not the address. */
+function aboutText(entry: AuditEntry): string {
+  if (entry.targetType === "Email") {
+    return "An email address (kept only as a code)";
+  }
+
+  if (entry.targetName !== null) {
+    return `${entry.targetType === "Agency" ? "Agency: " : ""}${entry.targetName}`;
+  }
+
+  return entry.targetType ?? "";
 }
 
 function VerifyChain() {
@@ -143,11 +176,11 @@ export function AuditPage() {
                     {result.entries.map((entry) => (
                       <tr key={entry.sequence}>
                         <td>{entry.sequence}</td>
-                        <td>{formatZambianTime(entry.occurredAt)}</td>
                         <td>
-                          {entry.actorRole ?? entry.actorType}
-                          {entry.actorUserId === null ? null : <span className="block break-all font-mono text-xs">{entry.actorUserId}</span>}
+                          {formatZambianTime(entry.occurredAt)}
+                          <span className="block text-xs text-slate-700">{formatRelative(entry.occurredAt)}</span>
                         </td>
+                        <td>{whoText(entry)}</td>
                         <td>
                           {entry.action}
                           {entry.detail === null ? null : <span className="block break-words text-xs text-slate-700">{entry.detail}</span>}
@@ -159,8 +192,14 @@ export function AuditPage() {
                           )}
                         </td>
                         <td>
-                          {entry.targetType ?? ""}
-                          {entry.targetId === null ? null : <span className="block break-all font-mono text-xs">{entry.targetId}</span>}
+                          {aboutText(entry)}
+                          {isAdmin && (entry.actorUserId !== null || entry.targetId !== null) ? (
+                            <details className="text-xs">
+                              <summary>IDs</summary>
+                              {entry.actorUserId === null ? null : <span className="block break-all font-mono">Who: {entry.actorUserId}</span>}
+                              {entry.targetId === null ? null : <span className="block break-all font-mono">About: {entry.targetId}</span>}
+                            </details>
+                          ) : null}
                         </td>
                         {showAddresses ? <td>{entry.ipAddress}</td> : null}
                       </tr>

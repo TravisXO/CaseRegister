@@ -678,7 +678,7 @@ public class StaffInviteTests(PostgresFixture postgres)
         Assert.Contains("with role Admin", confirmed.Detail, StringComparison.Ordinal);
         foreach (var entry in new[] { proposed, created, confirmed })
         {
-            Assert.StartsWith("email-sha256:", entry.Subject, StringComparison.Ordinal);
+            Assert.StartsWith("email-hmac:p1:", entry.Subject, StringComparison.Ordinal);
             Assert.DoesNotContain(InviteeEmail, entry.Subject + entry.Detail, StringComparison.OrdinalIgnoreCase);
         }
     }

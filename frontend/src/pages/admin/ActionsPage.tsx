@@ -8,6 +8,7 @@ import { IDENTITY_REASON_MIN, REASON_MAX, REASON_MIN } from "../../lib/config";
 import { errorFor, problemsFrom, type Problems } from "../../lib/forms";
 import { useSubmit } from "../../lib/hooks";
 import { proposal } from "../../lib/proposals";
+import { rolesText } from "../../lib/roles";
 import type { PendingActionType, Person } from "../../api/types";
 
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -178,7 +179,7 @@ function FindPeople() {
             <li key={person.id} className="border-t border-slate-300 pt-2">
               <p className="font-medium">{person.fullName}</p>
               <p className="text-sm text-slate-700">
-                {person.email}, {person.status.toLowerCase()}, {person.roles.length === 0 ? "no roles" : person.roles.join(", ")}
+                {person.email}, {person.status.toLowerCase()}, {rolesText(person.roles, "no roles")}
               </p>
               <p className="break-all text-sm text-slate-700">Account ID: {person.id}</p>
             </li>

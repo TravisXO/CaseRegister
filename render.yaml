@@ -31,6 +31,10 @@ services:
       # The audit chain's signing key (base64, 32 bytes) and the R2 bucket the daily anchors are written to.
       - key: Audit__Keys__k1
         sync: false
+      # The separate key that pseudonymises email addresses in audit entries (docs/runbooks/key-recovery.md). Every key ever used stays.
+      - key: Pseudonym__Keys__p1
+        sync: false
+
       - key: Audit__R2__Endpoint
         sync: false
       - key: Audit__R2__Bucket

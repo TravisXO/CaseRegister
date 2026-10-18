@@ -8,3 +8,13 @@ useDefault = true
 description = "Made-up secrets in the log redaction tests"
 targetRules = ["generic-api-key"]
 paths = ['''CaseRegister\.Tests/Hardening/LogRedactionTests\.cs''']
+
+# render.yaml names the settings Render asks for, with `sync: false`: the file holds no values. Gitleaks reads the name of the pseudonym key setting as
+# a high-entropy value after the word "key". Only that exact line in that exact file, and only the generic rule; every real value is set in Render's dashboard.
+[[allowlists]]
+description = "The name of the Pseudonym__Keys__p1 setting in render.yaml (a name, not a value)"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^render\.yaml$''']
+regexTarget = "line"
+regexes = ['''- key: Pseudonym__Keys__p1''']

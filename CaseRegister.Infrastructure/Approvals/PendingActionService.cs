@@ -27,6 +27,7 @@ internal sealed partial class PendingActionService(
     TimeProvider time,
     IOptions<StaffInviteOptions> invites,
     NotificationDispatcher notifications,
+    IPseudonymiser pseudonyms,
     ILogger<PendingActionService> logger) : IPendingActionService
 {
     private const string OnePendingIndex = "ux_pending_actions_one_pending_per_target";
@@ -636,8 +637,8 @@ internal sealed partial class PendingActionService(
     // An invite has no account yet, so it is named by a label of its email address, never the address itself.
     private static string TargetTypeOf(PendingAction action) => action.TargetUserId is not null ? "User" : action.TargetAgencyId is not null ? "Agency" : "Email";
 
-    private static string TargetOf(PendingAction action) =>
-        (action.TargetUserId ?? action.TargetAgencyId)?.ToString() ?? AuditSubject.ForAttemptedEmail(action.TargetEmail);
+    private string TargetOf(PendingAction action) =>
+        (action.TargetUserId ?? action.TargetAgencyId)?.ToString() ?? pseudonyms.ForEmail(action.TargetEmail);
 
     private async Task<Actor?> ActorAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -709,7 +710,8 @@ internal sealed partial class PendingActionService(
                     action.LastRefusalCode,
                     action.LastRefusalMessage,
                     action.LastRefusedAt,
-                    action.TargetEmail);
+                    action.TargetEmail,
+                    action.DecidedByUserId is { } decider ? userNames.GetValueOrDefault(decider) : null);
             }),
         ];
     }

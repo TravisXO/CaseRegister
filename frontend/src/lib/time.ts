@@ -27,3 +27,34 @@ export function formatCalendarDate(isoDate: string): string {
 export function currentZambianYear(now: Date = new Date()): number {
   return Number(new Intl.DateTimeFormat("en-GB", { timeZone: zone, year: "numeric" }).format(now));
 }
+
+const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+/**
+ * "3 hours ago", "yesterday", "in 2 days": how long ago (or how far ahead) an instant is, from the moment given. It is worked out when the page is drawn
+ * and not kept up to date (nothing here runs on a timer), so it is a reading aid beside the exact time and never instead of it.
+ */
+export function formatRelative(iso: string | null | undefined, now: number = Date.now()): string {
+  if (iso === null || iso === undefined || iso === "") {
+    return "";
+  }
+
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) {
+    return "";
+  }
+
+  const seconds = Math.round((then - now) / 1000);
+  const steps: [Intl.RelativeTimeFormatUnit, number][] = [["day", 86_400], ["hour", 3600], ["minute", 60]];
+  if (Math.abs(seconds) < 45) {
+    return "just now";
+  }
+
+  for (const [unit, size] of steps) {
+    if (Math.abs(seconds) >= size) {
+      return relative.format(Math.round(seconds / size), unit);
+    }
+  }
+
+  return relative.format(Math.round(seconds / 60), "minute");
+}

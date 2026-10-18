@@ -352,6 +352,8 @@ internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAudit
                 var total = await entries.LongCountAsync(cancellationToken);
                 var rows = await entries.OrderByDescending(record => record.Sequence).Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
 
+                var (userNames, agencyNames) = await NamesAsync(rows, isAdmin, viewer.AgencyId, cancellationToken);
+
                 result = new AuditPage(
                     [.. rows.Select(record => new AuditEntryView(
                         record.Sequence,
@@ -367,7 +369,9 @@ internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAudit
                         isAdmin ? record.IpAddress : null, // only admins see where people connected from
                         record.Detail,
                         record.BeforeJson,
-                        record.AfterJson))],
+                        record.AfterJson,
+                        record.ActorUserId is { } actor ? userNames.GetValueOrDefault(actor) : null,
+                        NameOfTarget(record, userNames, agencyNames)))],
                     page,
                     size,
                     total);
@@ -392,5 +396,40 @@ internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAudit
             cancellationToken);
 
         return new AuditReadResult(AuditReadOutcome.Ok, result);
+    }
+
+    private static string? NameOfTarget(AuditLogRecord record, Dictionary<Guid, string> users, Dictionary<Guid, string> agencies) =>
+        Guid.TryParse(record.Subject, out var id)
+            ? record.TargetType switch
+            {
+                "User" => users.GetValueOrDefault(id),
+                "Agency" => agencies.GetValueOrDefault(id),
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
+    /// The names behind the ids on this page. An admin is told all of them. A compliance officer is told the names of people in their own agency and of that agency, and
+    /// nothing about anyone else (an admin who acted, a member of another agency): those are shown by their role only.
+    /// </summary>
+    private async Task<(Dictionary<Guid, string> Users, Dictionary<Guid, string> Agencies)> NamesAsync(IReadOnlyList<AuditLogRecord> rows, bool isAdmin, Guid? viewerAgencyId, CancellationToken cancellationToken)
+    {
+        var ids = rows
+            .SelectMany(record => new[] { record.ActorUserId, Guid.TryParse(record.Subject, out var subject) ? subject : (Guid?)null })
+            .OfType<Guid>()
+            .Distinct()
+            .ToList();
+
+        var users = db.Users.AsNoTracking().Where(user => ids.Contains(user.Id));
+        var agencies = db.Agencies.AsNoTracking().Where(agency => ids.Contains(agency.Id));
+        if (!isAdmin)
+        {
+            users = users.Where(user => user.AgencyId == viewerAgencyId);
+            agencies = agencies.Where(agency => agency.Id == viewerAgencyId);
+        }
+
+        return (
+            await users.ToDictionaryAsync(user => user.Id, user => user.FullName, cancellationToken),
+            await agencies.ToDictionaryAsync(agency => agency.Id, agency => agency.Name, cancellationToken));
     }
 }

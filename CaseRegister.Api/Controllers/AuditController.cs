@@ -57,7 +57,9 @@ public sealed class AuditController(IAuditReader reader, IAuditVerifier verifier
                     entry.IpAddress,
                     entry.Detail,
                     entry.Before is null ? null : JsonSerializer.Deserialize<JsonElement>(entry.Before),
-                    entry.After is null ? null : JsonSerializer.Deserialize<JsonElement>(entry.After)))],
+                    entry.After is null ? null : JsonSerializer.Deserialize<JsonElement>(entry.After),
+                    entry.ActorName,
+                    entry.TargetName))],
                 result.Page.Page,
                 result.Page.PageSize,
                 result.Page.Total))

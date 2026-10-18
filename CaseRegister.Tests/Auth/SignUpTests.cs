@@ -344,7 +344,7 @@ public class SignUpTests(PostgresFixture postgres)
         await SignUps.PostAsync(factory.CreateApiClient(), SignUps.Body(factory, "approved@example.test"));
 
         var entry = Assert.Single(await factory.WithDbAsync(db => db.AuditLog.AsNoTracking().Where(e => e.Action == "MemberSignUpIgnored").ToListAsync()));
-        Assert.StartsWith("email-sha256:", entry.Subject, StringComparison.Ordinal);
+        Assert.StartsWith("email-hmac:p1:", entry.Subject, StringComparison.Ordinal);
         Assert.DoesNotContain("approved@example.test", entry.Subject + entry.Detail, StringComparison.Ordinal);
         Assert.Contains("Approved", entry.Detail, StringComparison.Ordinal);
     }

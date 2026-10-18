@@ -46,6 +46,7 @@ internal sealed class MemberSignUpService(
     IOptions<MembershipOptions> membership,
     NotificationDispatcher notifications,
     IAuditLog audit,
+    IPseudonymiser pseudonyms,
     Microsoft.Extensions.Logging.ILogger<MemberSignUpService> logger,
     TimeProvider time) : IMemberSignUpService
 {
@@ -235,7 +236,7 @@ internal sealed class MemberSignUpService(
             new AuditEntry(
                 AuditAction.MemberSignUpIgnored,
                 ActorUserId: null,
-                Subject: AuditSubject.ForAttemptedEmail(claims.Email),
+                Subject: pseudonyms.ForEmail(claims.Email),
                 IpAddress: remoteIpAddress,
                 Detail: detail),
             logger, cancellationToken);

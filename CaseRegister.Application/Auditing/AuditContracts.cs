@@ -193,6 +193,8 @@ public sealed record AuditQuery(DateTimeOffset? From, DateTimeOffset? To, Guid? 
 }
 
 /// <param name="IpAddress">Null for anyone who is not an admin.</param>
+/// <param name="ActorName">Who did it, by name, so the log can be read without looking ids up. A compliance officer is given names only for people of their own agency; anyone else is null.</param>
+/// <param name="TargetName">The same for what it was done to, when that is a person or an agency.</param>
 public sealed record AuditEntryView(
     long Sequence,
     DateTimeOffset OccurredAt,
@@ -207,7 +209,9 @@ public sealed record AuditEntryView(
     string? IpAddress,
     string? Detail,
     string? Before,
-    string? After);
+    string? After,
+    string? ActorName = null,
+    string? TargetName = null);
 
 public sealed record AuditPage(IReadOnlyList<AuditEntryView> Entries, int Page, int PageSize, long Total);
 
