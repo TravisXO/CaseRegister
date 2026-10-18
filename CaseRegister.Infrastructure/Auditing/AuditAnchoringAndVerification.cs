@@ -120,9 +120,9 @@ internal sealed partial class AuditVerifier(
 {
     private const int BatchSize = 1000;
 
-    public async Task<AuditVerification> VerifyAndRecordAsync(bool fromLastGoodAnchor, Guid? actorUserId, string? remoteIpAddress, CancellationToken cancellationToken = default)
+    public async Task<AuditVerification> VerifyAndRecordAsync(bool fromLastGoodAnchor, Guid? actorUserId, string? remoteIpAddress, bool restoredBackup = false, CancellationToken cancellationToken = default)
     {
-        var result = await VerifyAsync(fromLastGoodAnchor, cancellationToken);
+        var result = await VerifyAsync(fromLastGoodAnchor, restoredBackup, cancellationToken);
 
         // The verification is itself an audited act, whatever it found.
         await audit.WriteAsync(
@@ -141,7 +141,7 @@ internal sealed partial class AuditVerifier(
         return result;
     }
 
-    public async Task<AuditVerification> VerifyAsync(bool fromLastGoodAnchor, CancellationToken cancellationToken = default)
+    public async Task<AuditVerification> VerifyAsync(bool fromLastGoodAnchor, bool restoredBackup = false, CancellationToken cancellationToken = default)
     {
         await store.EnsureImportedAsync(cancellationToken);
         var head = await store.ReadHeadAsync(cancellationToken);
@@ -161,8 +161,16 @@ internal sealed partial class AuditVerifier(
 
         AuditAnchor? startAnchor = null;
         var checkedAnchors = 0;
+        var newerAnchors = 0;
         foreach (var anchor in anchors.OrderByDescending(a => a.Sequence))
         {
+            // A copy restored from a backup was made before these were written; it cannot answer for them.
+            if (restoredBackup && anchor.Sequence > head.LastSequence)
+            {
+                newerAnchors++;
+                continue;
+            }
+
             checkedAnchors++;
             var mismatch = await AnchorProblemAsync(anchor, cancellationToken);
             if (mismatch is not null)
@@ -229,7 +237,8 @@ internal sealed partial class AuditVerifier(
             sink.IsConfigured,
             from == 0 ? null : from,
             first,
-            time.GetUtcNow());
+            time.GetUtcNow(),
+            newerAnchors);
     }
 
     /// <summary>Whether this entry is what the chain says it should be. Null if it is.</summary>

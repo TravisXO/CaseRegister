@@ -164,18 +164,21 @@ public sealed record AuditVerification(
     bool AnchorStoreConfigured,
     long? FromAnchorSequence,
     AuditBreak? FirstBreak,
-    DateTimeOffset VerifiedAt);
+    DateTimeOffset VerifiedAt,
+    int NewerAnchors = 0);
 
 public interface IAuditVerifier
 {
     /// <summary>
     /// Walks the chain, recomputing every hash and link, and checks the head and the anchors. Reports the first
     /// broken link. With <paramref name="fromLastGoodAnchor"/> it starts after the newest anchor that still matches.
+    /// With <paramref name="restoredBackup"/> the database is a copy made earlier: anchors for entries newer than the copy's last entry are left out
+    /// (the copy cannot hold them) and counted in <see cref="AuditVerification.NewerAnchors"/>; every anchor the copy can answer for is still compared.
     /// </summary>
-    Task<AuditVerification> VerifyAsync(bool fromLastGoodAnchor, CancellationToken cancellationToken = default);
+    Task<AuditVerification> VerifyAsync(bool fromLastGoodAnchor, bool restoredBackup = false, CancellationToken cancellationToken = default);
 
     /// <summary>Verifies, and records that it was done, and by whom. A verification is itself an audited act.</summary>
-    Task<AuditVerification> VerifyAndRecordAsync(bool fromLastGoodAnchor, Guid? actorUserId, string? remoteIpAddress, CancellationToken cancellationToken = default);
+    Task<AuditVerification> VerifyAndRecordAsync(bool fromLastGoodAnchor, Guid? actorUserId, string? remoteIpAddress, bool restoredBackup = false, CancellationToken cancellationToken = default);
 }
 
 public interface IAuditAnchoring

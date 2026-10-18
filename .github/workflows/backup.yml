@@ -1,0 +1,102 @@
+name: Database backup
+
+# Every night at 02:00 UTC: a full dump of the Neon database, encrypted so that only the offline private key can open it, into a
+# separate R2 bucket whose lifecycle rule removes dumps after 35 days. Set-up is in docs/runbooks/backup-and-restore.md.
+# Until the secrets and the public key are in place the workflow skips with a notice, and the run is green.
+#
+# GitHub switches scheduled workflows off in a public repository after 60 days without any repository activity. If the
+# nightly backup stops appearing in the bucket, look at the Actions tab first (the runbook says how to turn it back on).
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  # pg_dump has to be at least as new as the server, so it runs from the same major version as the database (Neon, PostgreSQL 18).
+  POSTGRES_IMAGE: postgres:18
+
+jobs:
+  backup:
+    name: Dump, encrypt, upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      BACKUP_R2_ENDPOINT: ${{ secrets.BACKUP_R2_ENDPOINT }}
+      BACKUP_R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+      BACKUP_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+      BACKUP_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A repository that has not been set up yet (or a fork) is not an error: the run says so and stops here, green.
+      - name: Check the backup is set up
+        id: setup
+        run: |
+          missing=""
+          for name in BACKUP_DATABASE_URL BACKUP_R2_ENDPOINT BACKUP_R2_BUCKET BACKUP_R2_ACCESS_KEY_ID BACKUP_R2_SECRET_ACCESS_KEY; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if ! grep -Eq '^age1[0-9a-z]+$' backup/age-recipients.txt; then missing="$missing (a public key in backup/age-recipients.txt)"; fi
+          if [ -n "$missing" ]; then
+            echo "::notice title=Backup skipped::No backup was taken because this is not set up yet. Missing:$missing. See docs/runbooks/backup-and-restore.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install age
+        if: steps.setup.outputs.ready == 'true'
+        run: sudo apt-get install --yes --no-install-recommends age
+
+      # Custom format (compressed, and pg_restore can read it selectively). No owners and no privileges, so it restores anywhere.
+      # The connection string goes in through the environment, not the command line.
+      - name: Dump the database
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          umask 077
+          docker run --rm --env BACKUP_DATABASE_URL "$POSTGRES_IMAGE" \
+            sh -c 'pg_dump "$BACKUP_DATABASE_URL" --format=custom --no-owner --no-privileges' > backup.dump
+          test -s backup.dump
+
+      # A dump that cannot be listed is not a backup.
+      - name: Check the dump can be read
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm --interactive "$POSTGRES_IMAGE" pg_restore --list < backup.dump | grep -q 'TABLE DATA'
+
+      - name: Encrypt with age
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          age --recipients-file backup/age-recipients.txt --output backup.dump.age backup.dump
+          rm -f backup.dump
+          test -s backup.dump.age
+
+      - name: Upload to the backup bucket
+        if: steps.setup.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2 does not accept the newer default checksum headers.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          key="dumps/caseregister-$(date -u +%Y%m%dT%H%M%SZ).dump.age"
+          aws s3 cp backup.dump.age "s3://${BACKUP_R2_BUCKET}/${key}" --endpoint-url "$BACKUP_R2_ENDPOINT" --no-progress
+          aws s3api head-object --bucket "$BACKUP_R2_BUCKET" --key "$key" --endpoint-url "$BACKUP_R2_ENDPOINT" > /dev/null
+          echo "Uploaded ${key} ($(stat --format=%s backup.dump.age) bytes)."

@@ -61,7 +61,7 @@ public sealed class KeyVerifier
 
         checks.Add(await SampleAuthenticatorAsync(cancellationToken));
 
-        var chain = await _audit.VerifyAsync(fromLastGoodAnchor: false, cancellationToken);
+        var chain = await _audit.VerifyAsync(fromLastGoodAnchor: false, cancellationToken: cancellationToken);
         checks.Add(new(
             "Audit chain",
             chain.Intact,

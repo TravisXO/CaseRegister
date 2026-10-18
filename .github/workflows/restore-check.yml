@@ -1,0 +1,145 @@
+name: Backup restore check
+
+# On the first of every month at 04:00 UTC: take the newest backup, restore it into a throwaway PostgreSQL container and run
+# verify-audit on the result. A backup nobody has ever restored is a hope, not a backup. The job fails if the restore fails or the
+# audit chain does not verify. Set-up is in docs/runbooks/backup-and-restore.md; until it is done the workflow skips with a notice.
+#
+# GitHub switches scheduled workflows off in a public repository after 60 days without any repository activity (see the runbook).
+on:
+  schedule:
+    - cron: "0 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  POSTGRES_IMAGE: postgres:18
+
+jobs:
+  restore-check:
+    name: Restore and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: throwaway-restore-check
+          POSTGRES_DB: restored
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      BACKUP_R2_ENDPOINT: ${{ secrets.BACKUP_R2_ENDPOINT }}
+      BACKUP_R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+      BACKUP_R2_READ_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_READ_ACCESS_KEY_ID }}
+      BACKUP_R2_READ_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_READ_SECRET_ACCESS_KEY }}
+      BACKUP_AGE_RESTORE_KEY: ${{ secrets.BACKUP_AGE_RESTORE_KEY }}
+      RESTORE_CHECK_SETTINGS: ${{ secrets.RESTORE_CHECK_SETTINGS }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the restore check is set up
+        id: setup
+        run: |
+          missing=""
+          for name in BACKUP_R2_ENDPOINT BACKUP_R2_BUCKET BACKUP_R2_READ_ACCESS_KEY_ID BACKUP_R2_READ_SECRET_ACCESS_KEY BACKUP_AGE_RESTORE_KEY RESTORE_CHECK_SETTINGS; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice title=Restore check skipped::Nothing was restored because this is not set up yet. Missing:$missing. See docs/runbooks/backup-and-restore.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install age
+        if: steps.setup.outputs.ready == 'true'
+        run: sudo apt-get install --yes --no-install-recommends age
+
+      - name: Download the newest backup
+        if: steps.setup.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_READ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_READ_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          # The names carry a UTC timestamp, so the last one in order is the newest.
+          key="$(aws s3api list-objects-v2 --bucket "$BACKUP_R2_BUCKET" --prefix dumps/ --endpoint-url "$BACKUP_R2_ENDPOINT" --query 'Contents[].Key' --output text | tr '\t' '\n' | sort | tail -n 1)"
+          if [ -z "$key" ] || [ "$key" = "None" ]; then
+            echo "::error::The backup bucket holds no backups at all."
+            exit 1
+          fi
+          echo "Newest backup: $key"
+          aws s3 cp "s3://${BACKUP_R2_BUCKET}/${key}" backup.dump.age --endpoint-url "$BACKUP_R2_ENDPOINT" --no-progress
+
+      - name: Decrypt
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$BACKUP_AGE_RESTORE_KEY" > restore-identity.txt
+          age --decrypt --identity restore-identity.txt --output backup.dump backup.dump.age
+          rm -f restore-identity.txt
+          test -s backup.dump
+
+      - name: Restore into the throwaway database
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm --network host --volume "$PWD:/work" --env PGPASSWORD=throwaway-restore-check "$POSTGRES_IMAGE" \
+            pg_restore --host localhost --username postgres --dbname restored --no-owner --no-privileges --exit-on-error /work/backup.dump
+
+      - name: Set up .NET 10
+        if: steps.setup.outputs.ready == 'true'
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore packages (locked)
+        if: steps.setup.outputs.ready == 'true'
+        run: dotnet restore CaseRegister.Api/CaseRegister.Api.csproj --locked-mode
+
+      # The settings secret holds NAME=value lines: every audit key ever used, the pseudonym key, the data protection certificate,
+      # Deployment__Mode and the name of the anchor bucket. Each value is masked in the log before it is used. The database and the
+      # read-only bucket token are set after it, so the check can only ever touch the throwaway database and can only read anchors.
+      - name: Prepare the settings for verify-audit
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in ''|'#'*) continue ;; esac
+            echo "::add-mask::${line#*=}"
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$RESTORE_CHECK_SETTINGS"
+          {
+            echo "ASPNETCORE_ENVIRONMENT=Production"
+            echo "ConnectionStrings__Default=Host=localhost;Port=5432;Database=restored;Username=postgres;Password=throwaway-restore-check"
+            echo "ConnectionStrings__Migrations=Host=localhost;Port=5432;Database=restored;Username=postgres;Password=throwaway-restore-check"
+            echo "Audit__R2__Endpoint=$BACKUP_R2_ENDPOINT"
+            echo "Audit__R2__AccessKeyId=$BACKUP_R2_READ_ACCESS_KEY_ID"
+            echo "Audit__R2__SecretAccessKey=$BACKUP_R2_READ_SECRET_ACCESS_KEY"
+          } >> "$GITHUB_ENV"
+
+      # The copy is older than the newest anchors, so --restored-backup leaves out the anchors the copy cannot hold (and says how many)
+      # and compares the rest. A broken chain, or an anchor the copy disagrees with, exits with a failure.
+      - name: Verify the audit chain of the restored copy
+        if: steps.setup.outputs.ready == 'true'
+        run: dotnet run --project CaseRegister.Api/CaseRegister.Api.csproj --configuration Release --no-restore --no-launch-profile -- verify-audit --restored-backup

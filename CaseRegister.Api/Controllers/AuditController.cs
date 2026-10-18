@@ -39,7 +39,7 @@ public sealed class AuditController(IAuditReader reader, IAuditVerifier verifier
         CancellationToken cancellationToken = default)
     {
         var viewer = new AuditViewer(CurrentUserId(), UserClaims.Roles(User), UserClaims.AgencyId(User));
-        var result = await reader.QueryAsync(new AuditQuery(from, to, actor, action, page, pageSize), viewer, RemoteIp(), cancellationToken);
+        var result = await reader.QueryAsync(new AuditQuery(from, to, actor, action, page, pageSize), viewer, RemoteIp(), cancellationToken: cancellationToken);
 
         return result.Outcome == AuditReadOutcome.Ok
             ? Ok(new AuditPageResponse(
@@ -72,7 +72,7 @@ public sealed class AuditController(IAuditReader reader, IAuditVerifier verifier
     [ProducesResponseType<AuditVerification>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Verify(VerifyAuditRequest request, CancellationToken cancellationToken)
     {
-        var result = await verifier.VerifyAndRecordAsync(request.FromLastGoodAnchor, CurrentUserId(), RemoteIp(), cancellationToken);
+        var result = await verifier.VerifyAndRecordAsync(request.FromLastGoodAnchor, CurrentUserId(), RemoteIp(), cancellationToken: cancellationToken);
 
         return Ok(result);
     }

@@ -102,6 +102,8 @@ Anchors are copies of the audit chain's latest hash, kept in a bucket you contro
 
 `verify-audit` compares the database with **every** anchor in the bucket and reports the first divergence (the lowest sequence number that disagrees), whether it is a changed entry, a cut-off tail or an anchor that was altered.
 
+Against a database restored from a backup, run `verify-audit --restored-backup`: the copy is older than the newest anchors, so anchors for entries the copy cannot hold are left out and counted (the output says how many); every anchor the copy can answer for is still compared. The nightly backups and the monthly restore check are in [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md).
+
 ## 4. Cloudflare Pages: the front end
 
 1. Dashboard → **Workers & Pages → Create → Pages → Connect to Git** → this repository. Name the project (this decides your address: `<name>.pages.dev`; if the name is taken Cloudflare adds letters, so read the address it gives you).

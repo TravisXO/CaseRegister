@@ -144,6 +144,64 @@ public class AuditAnchorTests(PostgresFixture postgres)
         Assert.Contains("no such entry", result.FirstBreak.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>What a restored backup looks like: the chain and the head agree, but the bucket holds anchors made after the copy was taken.</summary>
+    private async Task<ApiFactory> AnOlderCopyAsync()
+    {
+        var factory = await ApiFactory.CreateAsync(postgres);
+        await factory.WriteManyAsync(4);
+        await AnchorNowAsync(factory);
+        await factory.WriteManyAsync(4);
+        await AnchorNowAsync(factory);
+        var keep = (await factory.AuditEntriesAsync()).Single(entry => entry.Sequence == 4);
+        await factory.TamperAsync($"DELETE FROM audit_log WHERE sequence > 4; UPDATE audit_chain_head SET last_sequence = 4, last_hash = '{keep.EntryHash}'");
+
+        return factory;
+    }
+
+    [Fact]
+    public async Task A_restored_copy_is_intact_when_only_anchors_newer_than_the_copy_are_missing_from_it()
+    {
+        await using var factory = await AnOlderCopyAsync();
+
+        var plain = await factory.VerifyAuditAsync();
+        Assert.False(plain.Intact); // checked as the live database, the newer anchor says the tail was cut off
+
+        using var scope = factory.Services.CreateScope();
+        var restored = await scope.ServiceProvider.GetRequiredService<IAuditVerifier>().VerifyAsync(false, restoredBackup: true);
+
+        Assert.True(restored.Intact);
+        Assert.Equal(4, restored.EntriesChecked);
+        Assert.True(restored.NewerAnchors >= 1);
+        Assert.True(restored.AnchorsChecked >= 1, "the anchor the copy can answer for is still compared");
+    }
+
+    [Fact]
+    public async Task A_restored_copy_is_still_checked_against_every_anchor_it_can_answer_for()
+    {
+        await using var factory = await AnOlderCopyAsync();
+        var keep = (await factory.AuditEntriesAsync()).Single(entry => entry.Sequence == 4);
+        var plain = new string('b', 64);
+        await factory.TamperAsync($"UPDATE audit_log SET entry_hash = '{plain}' WHERE sequence = 4; UPDATE audit_chain_head SET last_hash = '{plain}'");
+        Assert.NotEqual(keep.EntryHash, plain);
+
+        using var scope = factory.Services.CreateScope();
+        var restored = await scope.ServiceProvider.GetRequiredService<IAuditVerifier>().VerifyAsync(false, restoredBackup: true);
+
+        Assert.False(restored.Intact);
+    }
+
+    [Fact]
+    public async Task The_verify_command_accepts_restored_backup_and_says_how_many_anchors_it_could_not_compare()
+    {
+        await using var factory = await AnOlderCopyAsync();
+
+        var (exit, terminal) = await RunAsync(factory, "verify-audit", "--restored-backup");
+
+        Assert.Equal(AuditCommands.Succeeded, exit);
+        Assert.Contains(terminal.Output, line => line.Contains("newer than this copy", StringComparison.Ordinal));
+        Assert.Contains(terminal.Output, line => line.Contains("The audit chain is intact", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task An_entry_that_differs_from_what_was_anchored_is_an_anchor_mismatch()
     {

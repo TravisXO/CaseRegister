@@ -4,7 +4,7 @@ using CaseRegister.Infrastructure.Auditing;
 namespace CaseRegister.Api.Cli;
 
 /// <summary>
-/// <c>dotnet run -- verify-audit [--from-anchor]</c> checks the audit chain and anchors, and
+/// <c>dotnet run -- verify-audit [--from-anchor] [--restored-backup]</c> checks the audit chain and anchors, and
 /// <c>dotnet run -- anchor-audit</c> writes an anchor of the chain as it stands. Both are themselves written to the audit log.
 /// </summary>
 public static class AuditCommands
@@ -12,6 +12,7 @@ public static class AuditCommands
     public const string VerifyName = "verify-audit";
     public const string AnchorName = "anchor-audit";
     public const string FromAnchorOption = "--from-anchor";
+    public const string RestoredBackupOption = "--restored-backup";
 
     public const int Succeeded = 0;
     public const int Failed = 1;
@@ -33,19 +34,20 @@ public static class AuditCommands
         // Reading anchors is all this does (with a read-only token, see docs/deployment.md), so the entry that records it asks for no anchor to be stored.
         services.GetRequiredService<AuditAnchorGate>().Suppress();
         var extra = args.Skip(1).ToList();
-        if (extra.Any(argument => argument != FromAnchorOption))
+        if (extra.Any(argument => argument is not (FromAnchorOption or RestoredBackupOption)))
         {
-            terminal.WriteLine($"Usage: {VerifyName} [{FromAnchorOption}]");
+            terminal.WriteLine($"Usage: {VerifyName} [{FromAnchorOption}] [{RestoredBackupOption}]");
 
             return Misused;
         }
 
-        var result = await services.GetRequiredService<IAuditVerifier>().VerifyAndRecordAsync(extra.Count > 0, actorUserId: null, remoteIpAddress: null, cancellationToken);
+        var result = await services.GetRequiredService<IAuditVerifier>().VerifyAndRecordAsync(extra.Contains(FromAnchorOption), actorUserId: null, remoteIpAddress: null, restoredBackup: extra.Contains(RestoredBackupOption), cancellationToken: cancellationToken);
 
         terminal.WriteLine($"Checked {result.EntriesChecked} entries up to sequence {result.HeadSequence}"
             + (result.FromAnchorSequence is { } from ? $", starting after the anchor at {from}" : ", from the first entry")
             + $"; {result.AnchorsChecked} anchors looked at"
-            + (result.AnchorStoreConfigured ? "." : " (no anchor store is configured)."));
+            + (result.AnchorStoreConfigured ? "." : " (no anchor store is configured).")
+            + (result.NewerAnchors > 0 ? $" {result.NewerAnchors} anchors are newer than this copy and could not be compared." : string.Empty));
 
         if (result.Intact)
         {
