@@ -58,6 +58,7 @@ public enum AuditAction
     NotificationAcknowledged,
     EnrolmentCodeUsed,
     ListViewed,
+    AnchorDeferred,
     BreakGlassUsed,
     BreakGlassRefused,
 }

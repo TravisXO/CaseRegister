@@ -88,14 +88,17 @@ It writes each secret to its own file in that folder (which must be outside any 
 
 ## 3. Cloudflare R2: the audit anchors
 
-Every day the audit chain's latest hash is written to a bucket you control, so someone with only the database cannot rewrite history without it showing.
+Anchors are copies of the audit chain's latest hash, kept in a bucket you control, so someone with only the database cannot rewrite history without it showing.
 
 1. Cloudflare dashboard → **R2** → create a bucket, for example `caseregister-anchors`. Leave it private (no public access, no custom domain).
-2. **Turn on a bucket lock** so anchors cannot be deleted or overwritten: bucket → Settings → **Bucket lock** → add a rule that keeps every object, for example prefix `anchors/` kept **indefinitely**. (The application also refuses to overwrite: it writes each anchor under its own name and tells R2 not to replace an object that exists.) The exact wording on the page may differ from this; the thing you want is "no object can be deleted or changed".
-3. **R2 → Manage API tokens → Create API token**: permission **Object Read & Write**, scoped to **this bucket only** (not "all buckets"). Copy the **Access Key ID** and **Secret Access Key** (shown once) and the account's S3 address, which looks like `https://<account id>.r2.cloudflarestorage.com` (no bucket name, no path). These are `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey` and `Audit__R2__Endpoint`; the bucket name is `Audit__R2__Bucket`.
-4. Put them in your password manager.
+2. **Turn on a bucket lock**: bucket → Settings → **Bucket lock** → add a rule that keeps every object, for example prefix `anchors/` kept **indefinitely**. **This lock is what stops anchors being deleted or overwritten, and it is the only thing that does.** R2 has no write-only permission: any token that can add an object can also replace or delete it, so the application's token, if someone steals it, could erase anchors were the lock not there. (The application also writes each anchor under its own name and tells R2 not to replace an object that exists, but that protects against mistakes, not against a thief.) The exact wording on the page may differ; what you want is "no object can be deleted or changed".
+3. **R2 → Manage API tokens → Create API token** for the application: permission **Object Read & Write**, scoped to **this bucket only** (not "all buckets"). Copy the **Access Key ID** and **Secret Access Key** (shown once) and the account's S3 address, which looks like `https://<account id>.r2.cloudflarestorage.com` (no bucket name, no path). These are `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey` and `Audit__R2__Endpoint` on Render; the bucket name is `Audit__R2__Bucket`.
+4. **A second token for your own machine**: create another token, permission **Object Read only**, scoped to the same bucket. Use this one, and never the application's, when you run `verify-audit` or `verify-keys` from your terminal (it only reads anchors). Then a stolen laptop or a leaked terminal history cannot write to the bucket.
+5. Put all of them in your password manager.
 
-**How the daily anchor happens with no scheduler:** the first audit entry written on each new Zambian day (any sign-in, view or change writes one) first writes an anchor of the chain as it stood, to the bucket. So an anchor is written on every day that anyone uses the site, at that day's first activity, and none on a day when nobody does. If R2 cannot be reached the anchor is logged as failed, the action goes ahead, and the next entry tries again. You can write one by hand any time with `anchor-audit` (below). **Production refuses to start without the bucket settings, and refuses the local-file anchor store.**
+**When anchors are written (there is no scheduler):** after the database has committed, never inside it. An anchor of the chain as it then stands is requested by the first audit entry on each new Zambian day, by the first entry after an hour has passed since the last anchor, immediately after every confirmed proposal, and after every break-glass command. The upload is inline with a 3-second limit; there are no background tasks, because Render can stop the instance at any moment. If the bucket cannot be reached the action that caused it has already happened and goes ahead; an `AnchorDeferred` entry is written to the audit log (once, while the bucket stays down), and the next audit write tries again. You can write one by hand any time with `anchor-audit` (below). **Production refuses to start without the bucket settings, and refuses the local-file anchor store.**
+
+`verify-audit` compares the database with **every** anchor in the bucket and reports the first divergence (the lowest sequence number that disagrees), whether it is a changed entry, a cut-off tail or an anchor that was altered.
 
 ## 4. Cloudflare Pages: the front end
 
@@ -161,6 +164,8 @@ What each command needs in its environment (set with `$env:Name = Ask 'Name'`):
 | --- | --- |
 | `migrate` | `ConnectionStrings__Migrations` |
 | `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit`, `verify-keys` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
+
+For `verify-audit` and `verify-keys` put the **read-only** R2 token's key id and secret in `Audit__R2__AccessKeyId` and `Audit__R2__SecretAccessKey` (step 3 of the R2 section); they only read anchors. `anchor-audit` and `seed-admin` and the break-glass commands write audit entries and, through them, anchors, so they need the application's token.
 
 The variables are only in that window. Environment variables beat user-secrets, so the development values are never used while they are set, and each command prints the database host and name before it does anything, so you can see it is the production one.
 

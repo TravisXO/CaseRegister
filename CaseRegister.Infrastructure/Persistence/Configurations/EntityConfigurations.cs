@@ -88,6 +88,8 @@ internal sealed class AuditChainHeadConfiguration : IEntityTypeConfiguration<Aud
         builder.Property(head => head.Id).ValueGeneratedNever();
         builder.Property(head => head.LastHash).HasMaxLength(64).IsRequired();
         builder.Property(head => head.LastAnchorDate).HasColumnType("date");
+        builder.Property(head => head.LastAnchorAt).HasColumnType("timestamp with time zone");
+        builder.Property(head => head.AnchorDeferred).HasDefaultValue(false);
 
         // The one row, there from the start: no hash yet, and nothing imported.
         builder.HasData(new AuditChainHead { Id = AuditChainHead.OnlyId, LastSequence = 0, LastHash = new string('0', 64), LegacyImported = false });

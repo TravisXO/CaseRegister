@@ -41,6 +41,7 @@ public static class DependencyInjection
     {
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<EntityTimestampInterceptor>();
+        services.AddSingleton<AfterCommitInterceptor>();
 
         AddDatabase(services);
         AddMembership(services);
@@ -76,7 +77,7 @@ public static class DependencyInjection
                 ?? throw new InvalidOperationException($"{DatabaseOptions.DefaultKey} is not configured.");
 
             AppDbContextOptions.Configure(builder, connectionString);
-            builder.AddInterceptors(provider.GetRequiredService<EntityTimestampInterceptor>());
+            builder.AddInterceptors(provider.GetRequiredService<EntityTimestampInterceptor>(), provider.GetRequiredService<AfterCommitInterceptor>());
         });
     }
 
@@ -223,6 +224,8 @@ public static class DependencyInjection
         services.AddScoped<AuditChainStore>();
         services.AddScoped<IAuditLog, ChainedAuditLog>();
         services.AddScoped<IAuditAnchoring, AuditAnchoring>();
+        services.AddScoped<AuditAnchorPublisher>();
+        services.AddScoped<AuditAnchorGate>();
         services.AddScoped<IAuditVerifier, AuditVerifier>();
         services.AddScoped<IAuditReader, AuditReader>();
     }

@@ -97,7 +97,7 @@ internal sealed partial class AuditAnchoring(AppDbContext db, AuditChainStore st
             {
                 await store.LockHeadAsync(cancellationToken);
                 await db.AuditChainHeads.Where(row => row.Id == AuditChainHead.OnlyId)
-                    .ExecuteUpdateAsync(set => set.SetProperty(row => row.LastAnchorDate, AuditChainFormat.ZambianDate(anchor.CreatedAt)), cancellationToken);
+                    .ExecuteUpdateAsync(set => set.SetProperty(row => row.LastAnchorDate, AuditChainFormat.ZambianDate(anchor.CreatedAt)).SetProperty(row => row.LastAnchorAt, anchor.CreatedAt).SetProperty(row => row.AnchorDeferred, false), cancellationToken);
                 await audit.WriteAsync(
                     new AuditEntry(AuditAction.AuditAnchored, actorUserId, Subject: head.LastSequence.ToString(CultureInfo.InvariantCulture), TargetType: "AuditLog", Detail: $"anchored sequence {head.LastSequence}"),
                     cancellationToken);

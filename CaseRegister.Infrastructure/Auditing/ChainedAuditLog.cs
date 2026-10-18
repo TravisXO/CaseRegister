@@ -3,6 +3,7 @@ using CaseRegister.Infrastructure.Approvals;
 using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -113,7 +114,7 @@ internal sealed partial class AuditChainStore(
 
         // Read fresh and untracked, so a head left behind by an earlier rolled-back transaction is never used.
         var rows = await db.AuditChainHeads
-            .FromSql($"SELECT id, last_sequence, last_hash, last_anchor_date, legacy_imported FROM audit_chain_head WHERE id = 1 FOR UPDATE")
+            .FromSql($"SELECT id, last_sequence, last_hash, last_anchor_date, last_anchor_at, anchor_deferred, legacy_imported FROM audit_chain_head WHERE id = 1 FOR UPDATE")
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
@@ -299,10 +300,10 @@ internal sealed partial class AuditChainStore(
 internal sealed partial class ChainedAuditLog(
     AppDbContext db,
     AuditChainStore store,
-    IAuditKeyring keys,
     IAuditAnchorSink anchors,
-    TimeProvider time,
-    ILogger<ChainedAuditLog> logger) : IAuditLog
+    IServiceScopeFactory scopes,
+    AuditAnchorGate gate,
+    TimeProvider time) : IAuditLog
 {
     public Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default) =>
         store.InTransactionAsync(() => AppendAsync(entry, cancellationToken), cancellationToken);
@@ -314,23 +315,18 @@ internal sealed partial class ChainedAuditLog(
             var head = await store.LockHeadAsync(cancellationToken);
             var sequence = head.LastSequence;
             var lastHash = head.LastHash;
-            var importedNow = false;
 
             if (!head.LegacyImported)
             {
                 (sequence, lastHash) = await store.ImportLegacyAsync(sequence, lastHash, cancellationToken);
-                importedNow = true;
             }
 
             var now = AuditChainFormat.TruncateToMicroseconds(time.GetUtcNow());
 
-            // The first entry of a new Zambian day anchors the chain as it stood (all of it committed). Not on the
-            // call that imported the old rows: if that call's transaction rolled back, the anchor would point at rows that are gone.
-            var anchoredOn = head.LastAnchorDate;
-            if (!importedNow && sequence > 0 && anchors.IsConfigured && AuditChainFormat.ZambianDate(now) is var today && (anchoredOn is null || today > anchoredOn)
-                && await TryAnchorAsync(sequence, lastHash, now, cancellationToken))
+            // An anchor is stored outside the database, so it is only asked for here and done after this transaction has committed.
+            if (anchors.IsConfigured && !gate.Suppressed)
             {
-                anchoredOn = today;
+                RequestAnchorIfDue(entry, head, now);
             }
 
             var record = await store.BuildForAppendAsync(sequence + 1, lastHash, entry, now, cancellationToken);
@@ -340,8 +336,7 @@ internal sealed partial class ChainedAuditLog(
             await db.AuditChainHeads.Where(row => row.Id == AuditChainHead.OnlyId).ExecuteUpdateAsync(
                 set => set
                     .SetProperty(row => row.LastSequence, record.Sequence)
-                    .SetProperty(row => row.LastHash, record.EntryHash)
-                    .SetProperty(row => row.LastAnchorDate, anchoredOn),
+                    .SetProperty(row => row.LastHash, record.EntryHash),
                 cancellationToken);
         }
         catch
@@ -356,25 +351,39 @@ internal sealed partial class ChainedAuditLog(
         }
     }
 
-    /// <summary>Writes an anchor. A store that fails is logged and tried again at the next entry; it never stops an action.</summary>
-    private async Task<bool> TryAnchorAsync(long sequence, string hash, DateTimeOffset now, CancellationToken cancellationToken)
+    /// <summary>
+    /// Asks for an anchor once this transaction commits when one is due: the first entry of a new Zambian day, the first after an hour has passed
+    /// since the last anchor, the next write after a failed upload, and always for a confirmed proposal or a break-glass command. Never for the
+    /// entry that records a failed upload (that would ask again at once).
+    /// </summary>
+    private void RequestAnchorIfDue(AuditEntry entry, AuditChainHead head, DateTimeOffset now)
     {
-        try
+        if (entry.Action == AuditAction.AnchorDeferred)
         {
-            await anchors.WriteAsync(AuditAnchoring.Make(keys.Current, sequence, hash, now), cancellationToken);
-
-            return true;
+            return;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            LogAnchorFailed(logger, sequence, exception);
 
-            return false;
+        string? reason = entry.Action switch
+        {
+            AuditAction.ActionConfirmed => "confirmed proposal",
+            AuditAction.BreakGlassUsed => "break-glass command",
+            _ => null,
+        };
+
+        reason ??= head.AnchorDeferred ? "retry of a failed upload"
+            : head.LastAnchorDate is null || head.LastAnchorAt is null || AuditChainFormat.ZambianDate(now) > head.LastAnchorDate ? "new Zambian day"
+            : now - head.LastAnchorAt >= AuditAnchorPublisher.Interval ? "an hour since the last anchor"
+            : null;
+
+        if (reason is not null && db.TryRequestAnchor())
+        {
+            db.AfterCommit(async _ =>
+            {
+                using var scope = scopes.CreateScope();
+                await scope.ServiceProvider.GetRequiredService<AuditAnchorPublisher>().PublishAsync(reason);
+            });
         }
     }
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Writing the audit anchor for sequence {Sequence} failed. It will be tried again with the next entry.")]
-    private static partial void LogAnchorFailed(ILogger logger, long sequence, Exception exception);
 }
 
 /// <summary>For events that stand alone and must not break their response (a failed sign-in): the failure is logged instead of thrown.</summary>

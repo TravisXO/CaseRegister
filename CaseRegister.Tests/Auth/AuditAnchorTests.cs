@@ -35,17 +35,17 @@ public class AuditAnchorTests(PostgresFixture postgres)
     // --- When an anchor is written -------------------------------------------------------------------------------
 
     [Fact]
-    public async Task The_first_entry_of_a_new_Zambian_day_anchors_the_chain_as_it_then_stood()
+    public async Task The_first_entry_of_a_new_Zambian_day_is_anchored_once_it_has_committed()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         factory.Clock.SetUtcNow(At(3, 10, 14)); // 16:00 in Zambia on 10 March
         await factory.WriteManyAsync(3, "day-one");
 
-        // The first ever entry had nothing before it to anchor; the second anchors the first; the third finds today already done.
+        // The first entry of the day is anchored after its commit; the next two find today already done.
         var afterFirstDay = AnchorsOf(factory);
         Assert.Equal(1, Assert.Single(afterFirstDay).Sequence);
 
-        factory.Clock.SetUtcNow(At(3, 10, 21, 59, 59)); // 23:59:59 in Zambia: still 10 March
+        factory.Clock.SetUtcNow(At(3, 10, 14, 30)); // half an hour later, the same day: nothing is due
         await factory.WriteManyAsync(1, "late");
         Assert.Single(AnchorsOf(factory));
 
@@ -55,8 +55,8 @@ public class AuditAnchorTests(PostgresFixture postgres)
         var anchors = AnchorsOf(factory);
         var entries = await factory.AuditEntriesAsync();
         Assert.Equal(2, anchors.Count);
-        Assert.Equal(4, anchors[1].Sequence); // the chain as it stood before the new day's first entry
-        Assert.Equal(entries[3].EntryHash, anchors[1].Hash);
+        Assert.Equal(5, anchors[1].Sequence); // the chain as it stood once the new day's first entry had committed
+        Assert.Equal(entries[4].EntryHash, anchors[1].Hash);
         Assert.Equal($"{At(3, 10, 0).Year}-03-11", anchors[1].ZambianDate);
         Assert.Equal(ApiFactory.TestKeyId, anchors[1].KeyId);
         Assert.Equal(5, entries.Count);
@@ -96,7 +96,9 @@ public class AuditAnchorTests(PostgresFixture postgres)
 
             await factory.WriteManyAsync(4); // does not throw
 
-            Assert.Equal(4, (await factory.AuditEntriesAsync()).Count);
+            var entries = await factory.AuditEntriesAsync();
+            Assert.Equal(4, entries.Count(entry => entry.Action == nameof(AuditAction.RecordViewed)));
+            Assert.Equal(1, entries.Count(entry => entry.Action == nameof(AuditAction.AnchorDeferred))); // said once, not on every try
             Assert.Contains(factory.Logs.Entries, log => log.Level == LogLevel.Error && log.Message.Contains("audit anchor", StringComparison.Ordinal));
             Assert.True((await factory.VerifyAuditAsync()).Intact);
         }

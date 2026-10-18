@@ -1,4 +1,5 @@
 using CaseRegister.Application.Auditing;
+using CaseRegister.Infrastructure.Auditing;
 
 namespace CaseRegister.Api.Cli;
 
@@ -29,6 +30,8 @@ public static class AuditCommands
 
     private static async Task<int> VerifyAsync(string[] args, IServiceProvider services, ITerminal terminal, CancellationToken cancellationToken)
     {
+        // Reading anchors is all this does (with a read-only token, see docs/deployment.md), so the entry that records it asks for no anchor to be stored.
+        services.GetRequiredService<AuditAnchorGate>().Suppress();
         var extra = args.Skip(1).ToList();
         if (extra.Any(argument => argument != FromAnchorOption))
         {

@@ -611,6 +611,16 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AnchorDeferred")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("anchor_deferred");
+
+                    b.Property<DateTimeOffset?>("LastAnchorAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_anchor_at");
+
                     b.Property<DateOnly?>("LastAnchorDate")
                         .HasColumnType("date")
                         .HasColumnName("last_anchor_date");
@@ -641,6 +651,7 @@ namespace CaseRegister.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = 1,
+                            AnchorDeferred = false,
                             LastHash = "0000000000000000000000000000000000000000000000000000000000000000",
                             LastSequence = 0L,
                             LegacyImported = false

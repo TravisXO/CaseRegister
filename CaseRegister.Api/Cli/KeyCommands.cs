@@ -28,6 +28,7 @@ public static class KeyCommands
         }
 
         using var scope = services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<CaseRegister.Infrastructure.Auditing.AuditAnchorGate>().Suppress();
         var checks = await scope.ServiceProvider.GetRequiredService<KeyVerifier>().VerifyAsync(cancellationToken);
 
         foreach (var check in checks)
