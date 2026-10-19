@@ -14,3 +14,16 @@ The MIT License permits use, copying, modification, merging, publishing, distrib
 ## Packages
 
 The packages the project depends on are listed in `Directory.Packages.props` (backend) and `frontend/package.json`; their licences were checked when each was added. See `docs/frontend.md` for the front end's.
+
+### Development tools added for the accessibility checks
+
+None of these is part of what is built or served; they only run in tests and in CI.
+
+| Package | Licence | Used for |
+| --- | --- | --- |
+| `vitest-axe` 0.1.0 | MIT | the matcher that reports axe's findings in the screen tests |
+| `axe-core` 4.14 (already used) | MPL-2.0 (file-level terms; used unmodified, as a tool) | the accessibility rules |
+| `@playwright/test` 1.64 | Apache-2.0 | drives the browser in `frontend/e2e` |
+| `@axe-core/playwright` 4.14 | MPL-2.0 (used unmodified, as a tool) | axe inside the browser checks |
+| `@lhci/cli` 0.15.1 (run with `npx`, not a dependency) | Apache-2.0 | Lighthouse CI |
+

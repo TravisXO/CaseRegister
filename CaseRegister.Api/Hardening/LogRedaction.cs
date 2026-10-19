@@ -73,7 +73,7 @@ public static partial class LogRedactor
     private static partial Regex CookieHeader();
 
     // The names of this application's own cookies, wherever they turn up.
-    [GeneratedRegex(@"(?<name>__Host-cr(?:-2fa(?:-remember)?)?|__Host-csrf)\s*=\s*[^;\s]+")]
+    [GeneratedRegex(@"(?<name>__Host-cr(?:-2fa(?:-remember)?|-passkey)?|__Host-csrf)\s*=\s*[^;\s]+")]
     private static partial Regex AppCookie();
 
     // database '"neondb"' on server '"tcp://host:5432"': the way EF Core words a connection error.

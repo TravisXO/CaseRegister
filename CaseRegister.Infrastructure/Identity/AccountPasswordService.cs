@@ -12,7 +12,7 @@ internal sealed class AccountPasswordService(
     SignInManager<ApplicationUser> signInManager,
     CredentialChecker credentials,
     SignInThrottle throttle,
-    ITwoFactorService twoFactor,
+    IStepUpVerifier stepUps,
     AppDbContext db,
     INotificationService notifications,
     IClientLocationAccessor location,
@@ -46,7 +46,7 @@ internal sealed class AccountPasswordService(
         }
 
         // And a current second factor as well: the password alone is not enough to change the password.
-        var second = await twoFactor.VerifyCodeAsync(userId, command.TwoFactorCode, remoteIpAddress, cancellationToken);
+        var second = await stepUps.VerifyAsync(userId, command.StepUp, remoteIpAddress, cancellationToken);
         if (second.Outcome == TwoFactorOutcome.RateLimited)
         {
             return ChangePasswordResult.TooManyAttempts(second.RetryAfter ?? TimeSpan.FromMinutes(1));

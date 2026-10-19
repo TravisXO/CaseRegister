@@ -63,6 +63,8 @@ export default defineConfig(({ command }) => {
   },
   test: {
     environment: "jsdom",
+    // The browser checks in e2e/ are run by Playwright (npm run e2e), not here.
+    include: ["src/**/*.test.{ts,tsx}", "functions/**/*.test.ts"],
     setupFiles: ["./src/test/setup.ts"],
     css: false,
     restoreMocks: true,

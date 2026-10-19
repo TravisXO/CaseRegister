@@ -1,5 +1,9 @@
 node_modules
 dist
+dist-e2e
 .certs
 coverage
 *.local
+playwright-report
+test-results
+.lighthouseci

@@ -8,7 +8,7 @@ import tseslint from "typescript-eslint";
 import { securityRules } from "./eslint.security.js";
 
 export default tseslint.config(
-  { ignores: ["dist", "coverage", "node_modules", "src/api/schema.d.ts", ".certs"] },
+  { ignores: ["dist", "dist-e2e", "coverage", "node_modules", "src/api/schema.d.ts", ".certs", "playwright-report", "test-results", ".lighthouseci"] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
@@ -52,7 +52,7 @@ export default tseslint.config(
   },
   {
     ...tseslint.configs.disableTypeChecked,
-    files: ["scripts/**/*.mjs", "vite.config.ts", "eslint.config.js", "eslint.security.js"],
+    files: ["scripts/**/*.mjs", "vite.config.ts", "eslint.config.js", "eslint.security.js", "lighthouserc.cjs"],
     languageOptions: { ...tseslint.configs.disableTypeChecked.languageOptions, globals: { ...globals.node } },
     rules: { ...tseslint.configs.disableTypeChecked.rules, "security/detect-non-literal-fs-filename": "off" }, // these read the project's own files
   },

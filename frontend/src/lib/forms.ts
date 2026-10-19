@@ -1,5 +1,6 @@
 import { ApiError, describeError } from "../api/client";
 import type { FormProblem } from "../components/ErrorSummary";
+import { PasskeyError } from "./webauthn";
 
 export interface Problems {
   problems: FormProblem[];
@@ -22,6 +23,14 @@ export function problemsFrom(error: unknown, fields: Record<string, string> = {}
     );
 
     return error.traceId === undefined ? { problems } : { problems, traceId: error.traceId };
+  }
+
+  if (error instanceof PasskeyError) {
+    return { problems: [{ message: error.message }] };
+  }
+
+  if (error instanceof PasskeyError) {
+    return { problems: [{ message: error.message }] };
   }
 
   const { message, traceId } = describeError(error);

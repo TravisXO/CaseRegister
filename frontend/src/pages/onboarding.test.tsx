@@ -48,7 +48,7 @@ describe("setting up two-factor", () => {
 
     const picture = await screen.findByAltText("QR code to scan with your authenticator app");
     expect(picture.getAttribute("src")).toMatch(/^data:image\/svg\+xml;base64,/);
-    expect(screen.getByText("JBSWY3DPEHPK3PXP")).toBeInTheDocument();
+    expect(screen.getByText("JBSW Y3DP EHPK 3PXP")).toBeInTheDocument(); // in groups of four, as text, beside the picture
     expect(recorded.filter((item) => item.path === "/api/auth/2fa/enrol")).toHaveLength(1);
     // Only this site was spoken to: no QR service, and the secret is in no address.
     expect(seen.every((address) => new URL(address).origin === window.location.origin)).toBe(true);
@@ -174,6 +174,49 @@ describe("setting up two-factor", () => {
     expect(screen.queryByRole("heading", { name: "Your recovery codes" })).not.toBeInTheDocument();
   });
 
+  it("shows the setup key as text in groups of four beside the picture, with a Copy button that announces itself", async () => {
+    needsEnrolment();
+    fakeApi({ "POST /api/auth/2fa/enrol": () => ({ otpAuthUri, sharedKey: "JBSWY3DPEHPK3PXP" }) });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderApp("/two-factor/set-up");
+    await userEvent.click(await screen.findByRole("button", { name: "Start set-up" }));
+
+    const key = await screen.findByText("JBSW Y3DP EHPK 3PXP");
+    expect(key).toHaveAccessibleName("Setup key, to type in by hand");
+    await userEvent.click(screen.getByRole("button", { name: "Copy the key" }));
+
+    expect(writeText).toHaveBeenCalledWith("JBSWY3DPEHPK3PXP"); // without the spaces
+    expect(await screen.findByText("The setup key copied.")).toBeInTheDocument();
+  });
+
+  it("says so, and what to do instead, when the key cannot be copied", async () => {
+    needsEnrolment();
+    fakeApi({ "POST /api/auth/2fa/enrol": () => ({ otpAuthUri, sharedKey: "JBSWY3DPEHPK3PXP" }) });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockRejectedValue(new Error("no")) }, configurable: true });
+    renderApp("/two-factor/set-up");
+    await userEvent.click(await screen.findByRole("button", { name: "Start set-up" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy the key" }));
+
+    expect(await screen.findByText("The setup key could not be copied. Select it and copy it by hand.")).toBeInTheDocument();
+  });
+
+  it("takes the code in one box that accepts a paste, as numbers on a phone keypad", async () => {
+    needsEnrolment();
+    fakeApi({ "POST /api/auth/2fa/enrol": () => ({ otpAuthUri, sharedKey: "JBSWY3DPEHPK3PXP" }) });
+    renderApp("/two-factor/set-up");
+    await userEvent.click(await screen.findByRole("button", { name: "Start set-up" }));
+
+    const field = await screen.findByLabelText("Code from the app");
+    expect(field).toHaveAttribute("inputmode", "numeric");
+    expect(field).toHaveAttribute("autocomplete", "one-time-code");
+    expect(screen.getAllByLabelText("Code from the app")).toHaveLength(1); // never split into six boxes
+    await userEvent.click(field);
+    await userEvent.paste("123456");
+    expect(field).toHaveValue("123456");
+  });
+
   it("uses one-time-code for the code field", async () => {
     needsEnrolment();
     fakeApi({ "POST /api/auth/2fa/enrol": () => ({ otpAuthUri, sharedKey: "JBSWY3DPEHPK3PXP" }) });
@@ -220,7 +263,7 @@ describe("applying to join", () => {
 
     const summary = await screen.findByRole("alert");
     expect(summary).toHaveTextContent("Enter a valid email address.");
-    await waitFor(() => { expect(screen.getByLabelText("Email address")).toHaveFocus(); });
+    await waitFor(() => { expect(summary).toHaveFocus(); });
     expect(screen.getByLabelText("Email address")).toHaveAccessibleDescription("Enter a valid email address.");
     expect(screen.getByLabelText("Password")).toHaveAccessibleDescription(/Use at least 12 characters\./);
   });

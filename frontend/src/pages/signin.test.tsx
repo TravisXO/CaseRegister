@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -168,7 +168,9 @@ describe("signing in", () => {
     const summary = await screen.findByRole("alert");
     expect(summary).toHaveTextContent("Enter your email address.");
     expect(summary).toHaveTextContent("Enter your password.");
-    await waitFor(() => { expect(screen.getByLabelText("Email address")).toHaveFocus(); });
+    await waitFor(() => { expect(summary).toHaveFocus(); });
+    await userEvent.click(within(summary).getByRole("link", { name: "Enter your email address." }));
+    expect(screen.getByLabelText("Email address")).toHaveFocus();
     expect(screen.getByLabelText("Email address")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Email address")).toHaveAccessibleDescription("Enter your email address.");
     expect(recorded.filter((item) => item.path === "/api/auth/sign-in")).toHaveLength(0);

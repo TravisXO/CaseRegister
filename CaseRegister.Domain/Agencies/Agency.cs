@@ -22,8 +22,14 @@ public sealed class Agency : Entity
 
     public AgencyStatus Status { get; private set; } = AgencyStatus.Active;
 
+    /// <summary>The earliest date this agency's records may be removed (see <see cref="RetentionPolicy"/>). Null while it is active. Nothing is removed yet.</summary>
+    public DateTimeOffset? RetainUntil { get; private set; }
+
+    /// <summary>While set, no removal of this agency's records may be considered, whatever <see cref="RetainUntil"/> says.</summary>
+    public bool LegalHold { get; set; }
+
     /// <summary>Takes away every agent capability from the agency's members. Nothing is deleted.</summary>
-    public void Suspend()
+    public void Suspend(DateTimeOffset now)
     {
         if (Status != AgencyStatus.Active)
         {
@@ -31,9 +37,10 @@ public sealed class Agency : Entity
         }
 
         Status = AgencyStatus.Suspended;
+        RetainUntil = RetentionPolicy.RetainUntil(Status, now);
     }
 
-    public void Reactivate()
+    public void Reactivate(DateTimeOffset now)
     {
         if (Status != AgencyStatus.Suspended)
         {
@@ -41,6 +48,7 @@ public sealed class Agency : Entity
         }
 
         Status = AgencyStatus.Active;
+        RetainUntil = RetentionPolicy.RetainUntil(Status, now);
     }
 
     public static Agency Create(string name)

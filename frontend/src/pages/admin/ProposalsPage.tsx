@@ -9,6 +9,7 @@ import { ProposalSummary } from "../../components/ProposalSummary";
 import { ShownOnce } from "../../components/ShownOnce";
 import { Empty, Loaded } from "../../components/States";
 import { useSession } from "../../auth/session";
+import { usePasskeyStepUp } from "../../lib/passkeys";
 import { REASON_MAX, REASON_MIN } from "../../lib/config";
 import { errorFor, problemsFrom, required, type Problems } from "../../lib/forms";
 import { useLoad, useSubmit } from "../../lib/hooks";
@@ -48,9 +49,10 @@ export function ProposalsPage() {
 function ConfirmForm({ action, onChanged, onLink, onEnrolmentCode }: { action: PendingAction; onChanged: (notice: string | null) => void; onLink: (link: string) => void; onEnrolmentCode: (code: string) => void }) {
   const [code, setCode] = useState("");
   const [problems, setProblems] = useState<Problems>({ problems: [] });
+  const passkey = usePasskeyStepUp();
 
-  const submit = useSubmit(async () => {
-    const mistakes = required(code, "code", "Enter a code from your authenticator app, or a recovery code.");
+  const submit = useSubmit(async (how: "code" | "passkey" = "code") => {
+    const mistakes = how === "passkey" ? [] : required(code, "code", "Enter a code from your authenticator app, or a recovery code.");
     if (mistakes.length > 0) {
       setProblems({ problems: mistakes });
 
@@ -58,8 +60,9 @@ function ConfirmForm({ action, onChanged, onLink, onEnrolmentCode }: { action: P
     }
 
     try {
-      // The hash sent is the one of the proposal on this screen, so what is confirmed is exactly what was read.
-      const confirmed = await api.confirm(action.id, { payloadHash: action.payloadHash, twoFactorCode: code.trim() });
+      // The hash sent is the one of the proposal on this screen, so what is confirmed is exactly what was read. The proof is a code or a passkey.
+      const proof = how === "passkey" ? { passkeyAssertion: await passkey.answer() } : { twoFactorCode: code.trim() };
+      const confirmed = await api.confirm(action.id, { payloadHash: action.payloadHash, ...proof });
       setCode("");
       if (typeof confirmed.setupLink === "string") {
         onLink(confirmed.setupLink);
@@ -93,6 +96,18 @@ function ConfirmForm({ action, onChanged, onLink, onEnrolmentCode }: { action: P
       <ErrorSummary problems={problems.problems} traceId={problems.traceId} />
       <TextField id="code" label="Code from your authenticator app" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => { setCode(event.target.value); }} error={errorFor(problems.problems, "code")} />
       <SubmitButton pending={submit.pending}>Confirm</SubmitButton>
+      {passkey.available ? (
+        <button
+          type="button"
+          className="btn-secondary ml-2"
+          disabled={submit.pending}
+          onClick={() => {
+            void submit.run("passkey");
+          }}
+        >
+          Confirm with a passkey
+        </button>
+      ) : null}
     </form>
   );
 }

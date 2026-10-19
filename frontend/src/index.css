@@ -5,6 +5,28 @@
   color-scheme: light;
 }
 
+/* Where the keyboard is is always visible, on everything that can take focus, and never hidden under the page edge (WCAG 2.4.7, 2.4.11). */
+:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+/* Scrolled to by focus or a link, an element lands clear of the top of the window. */
+html {
+  scroll-padding-top: 6rem;
+  scroll-padding-bottom: 4rem;
+}
+
+/* A person who asked their system for less motion gets none. */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @utility btn {
   @apply inline-flex min-h-11 items-center justify-center rounded border px-4 py-2 text-base font-medium focus:outline-2 focus:outline-offset-2 focus:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-60;
 }
@@ -27,10 +49,13 @@
   .btn-secondary { @apply btn border-slate-500 bg-white text-slate-900 hover:bg-slate-100; }
   .btn-danger { @apply btn border-red-800 bg-red-800 text-white hover:bg-red-900; }
   .link { @apply text-blue-800 underline hover:text-blue-950; }
+  /* A link or link-like button that stands alone is at least 24 by 24 CSS pixels (WCAG 2.5.8). One inside a sentence is exempt. */
+  button.link, nav a, footer a { @apply inline-flex min-h-6 min-w-6 items-center; }
   .alert-error { @apply alert border-red-700 bg-red-50 text-red-950; }
   .alert-warning { @apply alert border-amber-600 bg-amber-50 text-amber-950; }
   .alert-info { @apply alert border-blue-700 bg-blue-50 text-blue-950; }
   .alert-success { @apply alert border-green-700 bg-green-50 text-green-950; }
+  .table-wrap { @apply max-w-full overflow-x-auto; }
   .table { @apply w-full border-collapse text-left text-sm; }
   .table th, .table td { @apply border-b border-slate-200 px-2 py-2 align-top; }
 }

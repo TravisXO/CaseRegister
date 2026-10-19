@@ -32,6 +32,16 @@ export const api = {
   startEnrolment: () => request<Schemas["EnrolmentResponse"]>("POST", "/api/auth/2fa/enrol"),
   confirmEnrolment: (code: string) => request<Schemas["RecoveryCodesResponse"]>("POST", "/api/auth/2fa/enrol/confirm", { body: { code } }),
 
+  // --- Passkeys. The options come as the JSON the browser reads; what the browser makes goes back as text. ---
+  passkeySignInOptions: () => request<unknown>("POST", "/api/auth/passkey/sign-in/options", { ...credentialsCall }),
+  passkeySignIn: (credential: string) => request<Schemas["StatusResponse"]>("POST", "/api/auth/passkey/sign-in", { body: { credential }, ...credentialsCall }),
+  passkeys: () => request<Schemas["PasskeyView"][]>("GET", "/api/auth/passkeys"),
+  passkeyCreationOptions: () => request<unknown>("POST", "/api/auth/passkeys/options"),
+  addPasskey: (body: Schemas["AddPasskeyCommand"]) => request<Schemas["PasskeyView"]>("POST", "/api/auth/passkeys", { body }),
+  renamePasskey: (id: string, name: string) => request<Schemas["PasskeyView"]>("PATCH", `/api/auth/passkeys/${encodeURIComponent(id)}`, { body: { name } }),
+  removePasskey: (id: string, body: Schemas["RemovePasskeyCommand"]) => request<undefined>("POST", `/api/auth/passkeys/${encodeURIComponent(id)}/remove`, { body }),
+  passkeyStepUpOptions: () => request<unknown>("POST", "/api/auth/passkeys/step-up/options"),
+
   // --- Staff setup from an invite link (no session yet) ---
   startStaffSetup: (token: string) => request<Schemas["EnrolmentResponse"]>("POST", "/api/auth/staff-setup/start", { body: { token }, ...credentialsCall }),
   completeStaffSetup: (body: Schemas["StaffSetupCompleteCommand"]) => request<Schemas["RecoveryCodesResponse"]>("POST", "/api/auth/staff-setup/complete", { body, ...credentialsCall }),

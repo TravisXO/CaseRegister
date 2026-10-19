@@ -192,7 +192,7 @@ internal sealed class VerifyCertificateOperation(AppDbContext db, TimeProvider t
 }
 
 /// <summary>Suspends an account and ends its sessions. Refuses if it would leave fewer than two active admins.</summary>
-internal sealed class SuspendUserOperation(UserManager<ApplicationUser> users, AppDbContext db) : IAdminOperation
+internal sealed class SuspendUserOperation(UserManager<ApplicationUser> users, AppDbContext db, TimeProvider time) : IAdminOperation
 {
     public PendingActionType Type => PendingActionType.SuspendUser;
 
@@ -222,7 +222,7 @@ internal sealed class SuspendUserOperation(UserManager<ApplicationUser> users, A
             user.Id.ToString(),
             async token =>
             {
-                user.AccountStatus = AccountStatus.Suspended;
+                user.ChangeStatus(AccountStatus.Suspended, time.GetUtcNow());
                 SessionEnding.Ensure(await users.UpdateAsync(user));
                 await SessionEnding.EndAllAsync(users, db, user, token);
             });
@@ -255,7 +255,7 @@ internal sealed class ReactivateUserOperation(UserManager<ApplicationUser> users
             user.Id.ToString(),
             async token =>
             {
-                user.AccountStatus = AccountStatus.Approved;
+                user.ChangeStatus(AccountStatus.Approved, time.GetUtcNow());
                 SessionEnding.Ensure(await users.UpdateAsync(user));
 
                 // Any lockout left over from before is cleared too (kept as history, marked cleared).
@@ -299,7 +299,7 @@ internal sealed class EndSessionsOperation(UserManager<ApplicationUser> users, A
 }
 
 /// <summary>
-/// Removes a person's authenticator and recovery codes, ends their sessions (and rotates their security stamp), and makes a one-time
+/// Removes a person's authenticator, recovery codes and passkeys, ends their sessions (and rotates their security stamp), and makes a one-time
 /// enrolment code that, with their password, lets them enrol again. The old records are kept, marked removed: nothing is deleted.
 /// </summary>
 internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users, AppDbContext db, TimeProvider time) : IAdminOperation
@@ -327,11 +327,12 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
         }
 
         var unusedCodes = await db.RecoveryCodes.CountAsync(code => code.UserId == user.Id && code.UsedAt == null && code.RevokedAt == null, cancellationToken);
+        var passkeyCount = (await users.GetPasskeysAsync(user)).Count;
 
         return new OperationPlan(
             [],
-            $"two-factor: {(authenticator is null ? "removed, waiting for a new set-up" : authenticator.EnabledAt is null ? "being set up" : "on")}; unused recovery codes: {unusedCodes}",
-            "two-factor: removed; recovery codes revoked; all sessions ended; one-time enrolment code made (72 hours, used up when set-up is finished)",
+            $"two-factor: {(authenticator is null ? "removed, waiting for a new set-up" : authenticator.EnabledAt is null ? "being set up" : "on")}; unused recovery codes: {unusedCodes}; passkeys: {passkeyCount}",
+            "two-factor: removed; recovery codes revoked; passkeys removed; all sessions ended; one-time enrolment code made (72 hours, used up when set-up is finished)",
             AuditAction.TwoFactorReset,
             user.Id.ToString(),
             async token =>
@@ -345,6 +346,13 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
                 foreach (var code in codes)
                 {
                     code.RevokedAt = now;
+                }
+
+                // A passkey signs in without the authenticator, so a reset takes every one of them away too (a credential, not a record: the
+                // row goes, and the audit entry of this action and the person's notice are what remember it).
+                foreach (var passkey in await users.GetPasskeysAsync(user))
+                {
+                    SessionEnding.Ensure(await users.RemovePasskeyAsync(user, passkey.CredentialId));
                 }
 
                 user.TwoFactorEnabled = false;
@@ -368,7 +376,7 @@ internal sealed class ResetTwoFactorOperation(UserManager<ApplicationUser> users
     }
 }
 
-internal sealed class SuspendAgencyOperation(AppDbContext db) : IAdminOperation
+internal sealed class SuspendAgencyOperation(AppDbContext db, TimeProvider time) : IAdminOperation
 {
     public PendingActionType Type => PendingActionType.SuspendAgency;
 
@@ -393,14 +401,14 @@ internal sealed class SuspendAgencyOperation(AppDbContext db) : IAdminOperation
             agency.Id.ToString(),
             async token =>
             {
-                agency.Suspend();
+                agency.Suspend(time.GetUtcNow());
                 await db.SaveChangesAsync(token);
                 context.Output.Intents.Add(new AgencyStatusChangedIntent(context.EventId, agency.Id));
             });
     }
 }
 
-internal sealed class ReactivateAgencyOperation(AppDbContext db) : IAdminOperation
+internal sealed class ReactivateAgencyOperation(AppDbContext db, TimeProvider time) : IAdminOperation
 {
     public PendingActionType Type => PendingActionType.ReactivateAgency;
 
@@ -425,7 +433,7 @@ internal sealed class ReactivateAgencyOperation(AppDbContext db) : IAdminOperati
             agency.Id.ToString(),
             async token =>
             {
-                agency.Reactivate();
+                agency.Reactivate(time.GetUtcNow());
                 await db.SaveChangesAsync(token);
                 context.Output.Intents.Add(new AgencyStatusChangedIntent(context.EventId, agency.Id));
             });

@@ -39,6 +39,6 @@ public sealed class ChangePasswordCommandValidator : AbstractValidator<ChangePas
     {
         RuleFor(command => command.CurrentPassword).NotEmpty().MaximumLength(PasswordPolicy.MaximumLength);
         RuleFor(command => command.NewPassword).NotEmpty().MaximumLength(PasswordPolicy.MaximumLength);
-        RuleFor(command => command.TwoFactorCode).NotEmpty().MaximumLength(TwoFactorCodeRules.MaxLength);
+        StepUpRules.Require(this, command => command.TwoFactorCode, command => command.PasskeyAssertion);
     }
 }

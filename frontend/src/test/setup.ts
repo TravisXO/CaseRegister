@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { forgetCsrfToken, onSessionEnded } from "../api/client";
+import { expectNoAccessibilityViolations, screenRendered } from "./a11y";
 import { server, unhandledRequests } from "./server";
 
 vi.stubEnv("VITE_TURNSTILE_SITE_KEY", "test-site-key");
@@ -39,17 +40,26 @@ beforeEach(() => {
   };
 });
 
-afterEach(() => {
-  const missed = unhandledRequests.splice(0);
-  if (missed.length > 0) {
-    throw new Error(`The app made requests the test did not answer. Add a handler for each (in the test, or in test/server.ts if every test needs it): ${missed.join("; ")}`);
-  }
+afterEach(async () => {
+  try {
+    // Every screen a test has rendered is checked, as the test left it, for what automated tools can find (axe: WCAG 2.2 AA and best practices).
+    if (screenRendered.value) {
+      screenRendered.value = false;
+      await expectNoAccessibilityViolations();
+    }
 
-  cleanup();
-  server.resetHandlers();
-  forgetCsrfToken();
-  onSessionEnded(null);
-  window.history.replaceState(null, "", "/");
+    const missed = unhandledRequests.splice(0);
+    if (missed.length > 0) {
+      throw new Error(`The app made requests the test did not answer. Add a handler for each (in the test, or in test/server.ts if every test needs it): ${missed.join("; ")}`);
+    }
+  } finally {
+    // Whatever was found, the next test starts clean.
+    cleanup();
+    server.resetHandlers();
+    forgetCsrfToken();
+    onSessionEnded(null);
+    window.history.replaceState(null, "", "/");
+  }
 });
 
 afterAll(() => {

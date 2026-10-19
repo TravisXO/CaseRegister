@@ -5,9 +5,12 @@ import { ErrorSummary } from "../components/ErrorSummary";
 import { PasswordField, SubmitButton, TextField } from "../components/Fields";
 import { ShownOnce } from "../components/ShownOnce";
 import { Empty, Loaded } from "../components/States";
+import { TableRegion } from "../components/TableRegion";
 import { useSession } from "../auth/session";
 import { errorFor, problemsFrom, required, type Problems } from "../lib/forms";
 import { useLoad, useSubmit } from "../lib/hooks";
+import { usePasskeyStepUp } from "../lib/passkeys";
+import { PasskeysSection } from "./PasskeysSection";
 import { rolesText } from "../lib/roles";
 import { currentZambianYear, formatCalendarDate, formatZambianTime } from "../lib/time";
 
@@ -69,29 +72,32 @@ function Certificates({ profileIsMember }: { profileIsMember: boolean }) {
           certificates.length === 0 ? (
             <Empty>You have not added a certificate yet.</Empty>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th scope="col">Number</th>
-                  <th scope="col">Valid</th>
-                  <th scope="col">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {certificates.map((certificate) => (
-                  <tr key={certificate.id}>
-                    <td>{certificate.number}</td>
-                    <td>
-                      {formatCalendarDate(certificate.validFrom)} to {formatCalendarDate(certificate.validTo)}
-                    </td>
-                    <td>
-                      {certificateStatus(certificate)}
-                      {certificate.verifiedAt === null ? null : <span className="hint">Verified {formatZambianTime(certificate.verifiedAt)}</span>}
-                    </td>
+            <TableRegion label="Your practising certificates">
+              <table className="table">
+                <caption className="sr-only">Your practising certificates</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Number</th>
+                    <th scope="col">Valid</th>
+                    <th scope="col">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {certificates.map((certificate) => (
+                    <tr key={certificate.id}>
+                      <th scope="row">{certificate.number}</th>
+                      <td>
+                        {formatCalendarDate(certificate.validFrom)} to {formatCalendarDate(certificate.validTo)}
+                      </td>
+                      <td>
+                        {certificateStatus(certificate)}
+                        {certificate.verifiedAt === null ? null : <span className="hint">Verified {formatZambianTime(certificate.verifiedAt)}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableRegion>
           )
         }
       </Loaded>
@@ -117,12 +123,13 @@ function ChangePassword() {
   const [code, setCode] = useState("");
   const [problems, setProblems] = useState<Problems>({ problems: [] });
   const [changed, setChanged] = useState(false);
+  const passkey = usePasskeyStepUp();
 
-  const change = useSubmit(async () => {
+  const change = useSubmit(async (how: "code" | "passkey" = "code") => {
     const mistakes = [
       ...required(current, "current-password", "Enter your current password."),
       ...required(next, "new-password", "Choose a new password."),
-      ...required(code, "code", "Enter a code from your authenticator app."),
+      ...(how === "passkey" ? [] : required(code, "code", "Enter a code from your authenticator app.")),
     ];
     if (mistakes.length > 0) {
       setProblems({ problems: mistakes });
@@ -132,7 +139,8 @@ function ChangePassword() {
     }
 
     try {
-      await api.changePassword({ currentPassword: current, newPassword: next, twoFactorCode: code.trim() });
+      const proof = how === "passkey" ? { passkeyAssertion: await passkey.answer() } : { twoFactorCode: code.trim() };
+      await api.changePassword({ currentPassword: current, newPassword: next, ...proof });
       setCurrent("");
       setNext("");
       setCode("");
@@ -166,6 +174,18 @@ function ChangePassword() {
         <PasswordField id="new-password" label="New password" autoComplete="new-password" hint="At least 12 characters. A long phrase is best." value={next} onChange={(event) => { setNext(event.target.value); }} error={errorFor(problems.problems, "new-password")} />
         <TextField id="code" label="Code from your authenticator app" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => { setCode(event.target.value); }} error={errorFor(problems.problems, "code")} />
         <SubmitButton pending={change.pending}>Change password</SubmitButton>
+        {passkey.available ? (
+          <button
+            type="button"
+            className="btn-secondary ml-2"
+            disabled={change.pending}
+            onClick={() => {
+              void change.run("passkey");
+            }}
+          >
+            Change password with a passkey
+          </button>
+        ) : null}
       </form>
     </section>
   );
@@ -286,6 +306,7 @@ export function ProfilePage() {
         </dd>
       </dl>
       <Certificates profileIsMember={profile.membershipNumber !== null} />
+      <PasskeysSection />
       <RecoveryCodes remaining={profile.recoveryCodesRemaining} low={profile.recoveryCodesLow} />
       <ChangePassword />
     </div>

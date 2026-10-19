@@ -147,7 +147,7 @@ public sealed partial class WorkflowFilesTests
         var text = Workflow("ci.yml");
         var restores = Regex.Matches(text, @"dotnet restore [^\n]*").Select(match => match.Value).ToList();
 
-        Assert.Equal(2, restores.Count); // the build job and the vulnerability job
+        Assert.Equal(3, restores.Count); // the build job, the vulnerability job and the bill-of-materials job
         Assert.All(restores, restore => Assert.Contains("--locked-mode", restore, StringComparison.Ordinal));
         Assert.Contains("-warnaserror", text, StringComparison.Ordinal);
         Assert.Matches(@"dotnet build CaseRegister\.slnx[^\n]*--no-restore[^\n]*-warnaserror", text);
@@ -264,6 +264,47 @@ public sealed partial class WorkflowFilesTests
         Assert.True(File.Exists(Path.Combine(_root, "frontend", "openapi.json")));
     }
 
+    [Fact]
+    public void The_accessibility_job_checks_every_screen_in_a_real_browser_and_fails_the_build_on_any_violation()
+    {
+        var job = Jobs(Workflow("ci.yml")).Single(j => j.Name == "accessibility").Text;
+        var config = Read("frontend", "playwright.config.ts");
+        var spec = Read("frontend", "e2e", "accessibility.spec.ts");
+
+        Assert.Contains("working-directory: frontend", job, StringComparison.Ordinal);
+        Assert.Contains("run: npm ci --ignore-scripts", job, StringComparison.Ordinal);
+        Assert.Contains("run: npx playwright install --with-deps chromium", job, StringComparison.Ordinal);
+        Assert.Contains("run: npm run build:e2e", job, StringComparison.Ordinal);
+        Assert.Contains("run: npm run e2e", job, StringComparison.Ordinal);
+        Assert.DoesNotContain("continue-on-error", job, StringComparison.Ordinal);
+
+        // At a desktop width and at 320px wide (what 400% zoom gives), with the rules of WCAG 2.2 AA and axe's best practices, and no retries to hide a flaky pass.
+        Assert.Contains("width: 320", config, StringComparison.Ordinal);
+        Assert.Contains("retries: 0", config, StringComparison.Ordinal);
+        Assert.Contains("wcag22aa", Read("frontend", "e2e", "support.ts"), StringComparison.Ordinal);
+        Assert.Matches(@"for \(const screen of screens\)", spec);
+        Assert.Contains("expectNoSidewaysScroll", spec, StringComparison.Ordinal);
+        foreach (var route in new[] { "/sign-in", "/sign-up", "/profile", "/sessions", "/notifications", "/admin/applications", "/admin/proposals", "/admin/audit", "/admin/admins" })
+        {
+            Assert.Contains($"path: \"{route}\"", spec, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void The_lighthouse_job_runs_on_mobile_settings_and_holds_the_accessibility_score_and_the_script_budget()
+    {
+        var job = Jobs(Workflow("ci.yml")).Single(j => j.Name == "lighthouse").Text;
+        var config = Read("frontend", "lighthouserc.cjs");
+
+        Assert.Contains("run: npm run lighthouse", job, StringComparison.Ordinal);
+        Assert.DoesNotContain("continue-on-error", job, StringComparison.Ordinal);
+        Assert.Matches(@"@lhci/cli@\d+\.\d+\.\d+", Read("frontend", "package.json")); // a fixed version, run on demand
+        Assert.Matches(@"""categories:accessibility"": \[""error"", \{ minScore: 1 \}\]", config);
+        Assert.Matches(@"""resource-summary:script:size"": \[""error"", \{ maxNumericValue: 204800 \}\]", config); // 200 KB, compressed
+        Assert.DoesNotContain("formFactor: \"desktop\"", config, StringComparison.Ordinal);
+        Assert.DoesNotContain("preset: \"desktop\"", config, StringComparison.Ordinal);
+    }
+
     // --- CodeQL --------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -331,11 +372,11 @@ public sealed partial class WorkflowFilesTests
     }
 
     [Fact]
-    public void Dependabot_has_exactly_those_four_ecosystems()
+    public void Dependabot_has_exactly_those_ecosystems_with_docker_for_the_images_in_workflows_as_well()
     {
         var config = Read(".github", "dependabot.yml");
 
-        Assert.Equal(["nuget", "npm", "github-actions", "docker"], Regex.Matches(config, @"(?m)^  - package-ecosystem: ([\w-]+)").Select(match => match.Groups[1].Value));
+        Assert.Equal(["nuget", "npm", "github-actions", "docker", "docker"], Regex.Matches(config, @"(?m)^  - package-ecosystem: ([\w-]+)").Select(match => match.Groups[1].Value));
     }
 
     // --- Locked restores -----------------------------------------------------------------------------------------

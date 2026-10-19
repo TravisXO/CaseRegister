@@ -2,8 +2,13 @@ namespace CaseRegister.Application.Auth;
 
 /// <param name="CurrentPassword">Required: a stolen session alone must not be enough to take over an account.</param>
 /// <param name="NewPassword">Checked against the password policy and known breaches.</param>
-/// <param name="TwoFactorCode">Required as well: a current authenticator code (or an unused recovery code).</param>
-public sealed record ChangePasswordCommand(string CurrentPassword, string NewPassword, string TwoFactorCode);
+/// <param name="TwoFactorCode">Required as well, unless a passkey answer is given instead: a current authenticator code (or an unused recovery code).</param>
+/// <param name="PasskeyAssertion">A passkey answer (JSON) to the options from <c>/api/auth/passkeys/step-up/options</c>, instead of a code.</param>
+public sealed record ChangePasswordCommand(string CurrentPassword, string NewPassword, string? TwoFactorCode = null, string? PasskeyAssertion = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public StepUp StepUp => new(TwoFactorCode, PasskeyAssertion);
+}
 
 /// <param name="Succeeded">Whether the password was changed.</param>
 /// <param name="Errors">Safe-to-show reasons when it was not. They never include any password or code.</param>

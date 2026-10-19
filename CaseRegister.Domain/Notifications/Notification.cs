@@ -41,6 +41,11 @@ public enum NotificationType
     SecurityRecoveryCodesLow,
     SecurityNewLocation,
     SecurityWrongSecondFactor,
+    SecurityPasskeyAdded,
+    SecurityPasskeyRemoved,
+
+    // A nudge, not a notice: an admin without a passkey is asked to add one.
+    PasskeyAdvice,
 }
 
 /// <summary>

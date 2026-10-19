@@ -1,3 +1,4 @@
+import { TableRegion } from "../../components/TableRegion";
 import { useState, type SyntheticEvent } from "react";
 import { api } from "../../api/endpoints";
 import type { AuditEntry, AuditVerification } from "../../api/types";
@@ -157,7 +158,7 @@ export function AuditPage() {
             <Empty>No entries match.</Empty>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <TableRegion label="Audit log entries">
                 <table className="table">
                   <caption className="mb-2 text-left text-sm text-slate-700">
                     {result.total} entries, newest first. Page {result.page} of {lastPage}.
@@ -206,7 +207,7 @@ export function AuditPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableRegion>
               <nav aria-label="Pages" className="mt-4 flex gap-2">
                 <button type="button" className="btn-secondary" disabled={page <= 1} onClick={() => { setPage(page - 1); }}>
                   Newer

@@ -113,3 +113,14 @@ updates:
     ignore:
       - dependency-name: "mcr.microsoft.com/dotnet/*"
         update-types: ["version-update:semver-major"]
+
+  # The image the backup workflows run pg_dump and the throwaway restore database from (see .github/images/Dockerfile).
+  - package-ecosystem: docker
+    directory: "/.github/images"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      workflow-images:
+        patterns:
+          - "*"

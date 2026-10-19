@@ -214,7 +214,7 @@ internal sealed class MemberSignUpService(
             // Back to waiting, with the new details and a new password; the old decision stays in the audit log.
             tracked!.FullName = claims.FullName;
             tracked.PasswordHash = hasher.HashPassword(tracked, claims.Password);
-            tracked.AccountStatus = AccountStatus.Pending;
+            tracked.ChangeStatus(AccountStatus.Pending, time.GetUtcNow()); // waiting again: nothing is scheduled for removal
             SessionEnding.Ensure(await users.UpdateAsync(tracked));
             SessionEnding.Ensure(await users.UpdateSecurityStampAsync(tracked));
 

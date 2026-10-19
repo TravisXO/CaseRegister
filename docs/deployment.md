@@ -27,8 +27,10 @@ Every secret is an environment variable. None is in `render.yaml` (it asks for e
 | `ConnectionStrings__Default` | Render | The application's own login, `case_register_app`, on the production database: the direct Neon host (not `-pooler`), `SSL Mode=VerifyFull`, `Maximum Pool Size=10`. Step 1. | Reset the role's password in the SQL editor and set it again. |
 | `ConnectionStrings__Migrations` | **Your machine only**, never Render | The database owner's direct connection string. Used by `migrate`, `seed-admin` and `verify-audit` from your terminal. | Reset the owner's password in the Neon console. |
 | `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey` | Render | The R2 bucket for the audit anchors and an API token that can reach that one bucket. Step 3. | Make a new token; the anchors in the bucket are not affected. |
+| `Passkeys__RelyingPartyId` | Render | The hostname the browser sees: the Pages hostname, for example `caseregister.pages.dev` (a bare lower-case hostname: no `https://`, port or path). Passkeys belong to this hostname. **Never** the `onrender.com` one: the browser never visits Render, and the API refuses to start with it (or with `localhost`) in production. | **Every passkey stops working** (they are tied to the hostname), and people sign in with their password and authenticator app until they add new ones. Keep the hostname. |
 | `Turnstile__ExpectedHostname` | Render | The Pages hostname the forms are on, for example `caseregister.pages.dev`. Cloudflare says in its answer which hostname a token was issued for; the API refuses one issued for any other site. The widget on each form also names its own action (`sign-in`, `sign-up`) and a token from one form is refused on the other. | Set it again. |
 | `Turnstile__SecretKey` | Render | Turnstile's secret key for the production site. Step 5. | Rotate it in the Turnstile dashboard. |
+| `VITE_PRIVACY_CONTACT_EMAIL` | Cloudflare Pages (production; read at build time) | Where people write about their personal data and about security problems. **Public**: it is shown on the privacy notice and the terms, so use an address you are happy to publish. Without it those pages say to use the contact details of whoever gave out the address. | Set it again and rebuild. |
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Pages (production; read at build time) | Turnstile's **public** site key. Not a secret: it is built into the page. Never put a secret in a `VITE_` variable. | Copy it from the Turnstile dashboard. |
 | `Deployment__Mode` | Render (already in `render.yaml`) | `Demo`, the only value allowed for now. The API refuses to start with anything else (or with nothing), and the pages show the demo notice because of it. It has no default on purpose. | Set it to `Demo`. |
 | `Invites__SetupPageUrl` | Render | `https://<your Pages hostname>/staff/setup`. Where a staff invite link points. | Set it again. |
@@ -143,6 +145,7 @@ In Pages → Settings → **Variables and secrets** → **Production**:
 | `PRODUCTION_HOSTNAME` | your Pages hostname, `…pages.dev` | text |
 | `PROXY_SECRET` | the same value as `Proxy__Secret` on Render | **secret** |
 | `VITE_TURNSTILE_SITE_KEY` | the Turnstile site key | text |
+| `VITE_PRIVACY_CONTACT_EMAIL` | an address to publish on the privacy notice and terms | text |
 | `NODE_VERSION` | `24` | text |
 
 Then **redeploy** (Deployments → the latest → Retry, or push a commit) so the build picks up the site key. Nothing goes in the Preview environment.

@@ -101,14 +101,17 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
-      <DemoNotice />
-      <StartingUpNotice />
+      {/* Everything on the page is inside a landmark, so a screen reader can jump to it: the notices here, then the header, main and footer. */}
+      <aside aria-label="Notices" className="print:hidden">
+        <DemoNotice />
+        <StartingUpNotice />
+      </aside>
       <SessionTimeout />
       {/* Said aloud politely when the person has just done something with a notification. It is never changed by the page moving on. */}
       <div role="status" aria-live="polite" className="sr-only">
         {announcement}
       </div>
-      <header className="border-b border-slate-300 bg-white">
+      <header className="border-b border-slate-300 bg-white print:hidden">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <Link to="/" className="text-lg font-semibold">
             CaseRegister
@@ -138,7 +141,7 @@ export function Layout() {
           ) : null}
         </div>
       </header>
-      <main className="flex-1">
+      <main id="main" className="flex-1">
         {problem === null ? null : (
           <p role="alert" className="alert-error mx-auto max-w-3xl">
             {problem}
@@ -151,7 +154,17 @@ export function Layout() {
         ) : null}
         <Outlet />
       </main>
-      <footer className="border-t border-slate-300 bg-white px-4 py-4 text-center text-sm text-slate-700">Independent concept, not affiliated with ZIEA</footer>
+      <footer className="border-t border-slate-300 bg-white px-4 py-4 text-center text-sm text-slate-700 print:hidden">
+        <nav aria-label="About this site" className="mb-2 flex flex-wrap justify-center gap-x-6 gap-y-1">
+          <Link to="/privacy" className="link">
+            Privacy
+          </Link>
+          <Link to="/terms" className="link">
+            Terms
+          </Link>
+        </nav>
+        Independent concept, not affiliated with ZIEA
+      </footer>
     </div>
   );
 }

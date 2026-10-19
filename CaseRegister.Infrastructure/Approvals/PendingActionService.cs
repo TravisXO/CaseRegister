@@ -22,7 +22,7 @@ namespace CaseRegister.Infrastructure.Approvals;
 internal sealed partial class PendingActionService(
     AppDbContext db,
     IEnumerable<IAdminOperation> operations,
-    ITwoFactorService twoFactor,
+    IStepUpVerifier stepUps,
     IAuditLog audit,
     TimeProvider time,
     IOptions<StaffInviteOptions> invites,
@@ -222,7 +222,7 @@ internal sealed partial class PendingActionService(
         }
 
         // A signed-in session is not enough: a fresh code, which also proves the confirmer is the one at the keyboard.
-        var step = await twoFactor.VerifyCodeAsync(confirmer.Id, command.TwoFactorCode, remoteIpAddress, cancellationToken);
+        var step = await stepUps.VerifyAsync(confirmer.Id, command.StepUp, remoteIpAddress, cancellationToken);
         if (step.Outcome == TwoFactorOutcome.RateLimited)
         {
             return new ConfirmResult(ConfirmOutcome.RateLimited, RetryAfter: step.RetryAfter);

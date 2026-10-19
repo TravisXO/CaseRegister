@@ -137,7 +137,7 @@ internal sealed class ApproveApplicationOperation(AppDbContext db, UserManager<A
                     db.Agencies.Add(agency);
                 }
 
-                user.AccountStatus = AccountStatus.Approved;
+                user.ChangeStatus(AccountStatus.Approved, time.GetUtcNow());
                 user.MembershipNumber = application.MembershipNumber;
                 user.MembershipClass = application.MembershipClass;
                 user.AgencyId = agency.Id;
@@ -193,7 +193,7 @@ internal sealed class RejectApplicationOperation(AppDbContext db, UserManager<Ap
             userId.ToString(),
             async token =>
             {
-                user.AccountStatus = AccountStatus.Rejected;
+                user.ChangeStatus(AccountStatus.Rejected, time.GetUtcNow());
                 SessionEnding.Ensure(await users.UpdateAsync(user));
                 application.Reject(context.ActorId, reason, time.GetUtcNow());
                 await db.SaveChangesAsync(token);

@@ -5,7 +5,7 @@
 # environment variable when the container starts.
 
 # ---- Build: restore, then publish. The SDK image is not part of what ships. ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa AS build
 WORKDIR /src
 
 # Project files and their lock files first, so the restore layer is reused until a package changes. Locked mode: the restore
@@ -26,7 +26,7 @@ RUN dotnet publish CaseRegister.Api/CaseRegister.Api.csproj -c Release -o /app -
 # ---- Run: the chiseled ASP.NET Core runtime. No shell, no package manager, no root. ----
 # Chiseled has no ICU or time zone data. The app needs neither: it formats with the invariant culture and
 # works out Zambian time as UTC+2. (The -extra image would add them if that ever changes.)
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled@sha256:84def277556c2843a44fdeefbd3145d0a2e32d8f736d0c1a7b0a96b2880b0187 AS final
 WORKDIR /app
 COPY --from=build /app .
 

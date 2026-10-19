@@ -3,6 +3,7 @@ import { http, HttpResponse, type JsonBodyType } from "msw";
 import { RouterProvider } from "react-router-dom";
 import { createTestRouter } from "../routes";
 import type { Profile } from "../api/types";
+import { screenRendered } from "./a11y";
 import { server } from "./server";
 
 export interface Recorded {
@@ -101,6 +102,7 @@ export function fakeApi(handlers: Record<string, (body: unknown) => JsonBodyType
 }
 
 export function renderApp(path = "/") {
+  screenRendered.value = true; // checked for accessibility problems when the test ends (see setup.ts)
   const router = createTestRouter([path]);
   const view = render(<RouterProvider router={router} />);
 

@@ -15,7 +15,11 @@
     "api:types": "openapi-typescript openapi.json -o src/api/schema.d.ts",
     "cert": "node scripts/dev-cert.mjs",
     "check:build": "node scripts/check-build.mjs",
-    "audit": "npm audit --audit-level=high"
+    "audit": "npm audit --audit-level=high",
+    "build:e2e": "tsc --noEmit && node scripts/build-e2e.mjs",
+    "e2e": "playwright test",
+    "serve": "node scripts/serve-dist.mjs",
+    "lighthouse": "npx --yes @lhci/cli@0.15.1 autorun --config=lighthouserc.cjs"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
@@ -24,7 +28,9 @@
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -48,6 +54,7 @@
     "typescript": "5.9",
     "typescript-eslint": "^8.71.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.4",
+    "vitest-axe": "^0.1.0"
   }
 }

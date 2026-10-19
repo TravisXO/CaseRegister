@@ -22,6 +22,29 @@ dotnet reportgenerator -reports:"coverage/**/coverage.cobertura.xml" -targetdir:
 
 Open `coverage/report/index.html`. CI does the same and keeps the report as a build artifact.
 
+## Accessibility and size checks
+
+Three layers, all run by CI and all failing the build:
+
+| Check | What it does | Run it |
+| --- | --- | --- |
+| **axe in the screen tests** | Every test that renders a screen (`renderApp`) is checked, as the test left it, against WCAG 2.2 AA and axe's best practices, through `vitest-axe`. Colour contrast cannot be judged without a browser, so it is left to the next check. | `npm test` in `frontend` |
+| **Playwright with axe** | The *built* site, in a real browser, with every call to the API answered by the test (`frontend/e2e/support.ts`). Every main screen, at a desktop width and at **320px wide** (what 400% zoom gives), with axe including colour contrast and target size, and a check that the page never scrolls sideways. A few things only a browser can show (focus, the error summary) are checked too. | `npm run build:e2e`, then `npm run e2e` |
+| **Lighthouse CI** | The built site on a phone's settings (small screen, slow 4G, a CPU four times slower), on the screens anyone can reach. The accessibility score has to be **100**, and no more than **200 KB** of JavaScript may be sent (compressed). | `npm run build:e2e`, then `npm run lighthouse` |
+
+The browser checks use a copy of the build in `dist-e2e` (with a Turnstile site key in it, which Cloudflare's script needs to draw; the tests replace that script), served by `frontend/scripts/serve-dist.mjs` under the production headers.
+
+**Running them on this machine.** Playwright can use a browser already installed instead of downloading its own: `PLAYWRIGHT_CHANNEL=msedge npm run e2e` (or `chrome`). In CI the job runs `npx playwright install --with-deps chromium`. Lighthouse CI needs Chrome: set `CHROME_PATH` to `chrome.exe` (Edge does not start under Lighthouse CI's launcher here):
+
+```bash
+cd frontend
+npm run build:e2e
+PLAYWRIGHT_CHANNEL=msedge npm run e2e
+CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe" npm run lighthouse
+```
+
+Lighthouse CI is run with `npx` at a fixed version (see `package.json`); it is not a dependency of the site, so it adds nothing to `npm audit`. What these checks cannot judge (how it *sounds* in a screen reader, how it feels on a phone) is the manual list in [manual-accessibility-test.md](manual-accessibility-test.md).
+
 ## Mutation checks
 
 A passing test suite only shows that the tests agree with the code. A mutation check shows that they would notice if the code

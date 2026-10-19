@@ -192,7 +192,7 @@ internal sealed class StaffSetupService(
                 // Together, in one transaction: the password, the second factor, and the account becoming usable.
                 person.PasswordHash = hasher.HashPassword(person, password);
                 person.TwoFactorEnabled = true;
-                person.AccountStatus = AccountStatus.Approved;
+                person.ChangeStatus(AccountStatus.Approved, time.GetUtcNow());
                 SessionEnding.Ensure(await users.UpdateAsync(person));
                 SessionEnding.Ensure(await users.UpdateSecurityStampAsync(person));
 
