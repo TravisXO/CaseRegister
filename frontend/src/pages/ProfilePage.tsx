@@ -5,6 +5,7 @@ import { ErrorSummary } from "../components/ErrorSummary";
 import { PasswordField, SubmitButton, TextField } from "../components/Fields";
 import { ShownOnce } from "../components/ShownOnce";
 import { Empty, Loaded } from "../components/States";
+import { TableRegion } from "../components/TableRegion";
 import { useSession } from "../auth/session";
 import { errorFor, problemsFrom, required, type Problems } from "../lib/forms";
 import { useLoad, useSubmit } from "../lib/hooks";
@@ -71,29 +72,32 @@ function Certificates({ profileIsMember }: { profileIsMember: boolean }) {
           certificates.length === 0 ? (
             <Empty>You have not added a certificate yet.</Empty>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th scope="col">Number</th>
-                  <th scope="col">Valid</th>
-                  <th scope="col">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {certificates.map((certificate) => (
-                  <tr key={certificate.id}>
-                    <td>{certificate.number}</td>
-                    <td>
-                      {formatCalendarDate(certificate.validFrom)} to {formatCalendarDate(certificate.validTo)}
-                    </td>
-                    <td>
-                      {certificateStatus(certificate)}
-                      {certificate.verifiedAt === null ? null : <span className="hint">Verified {formatZambianTime(certificate.verifiedAt)}</span>}
-                    </td>
+            <TableRegion label="Your practising certificates">
+              <table className="table">
+                <caption className="sr-only">Your practising certificates</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Number</th>
+                    <th scope="col">Valid</th>
+                    <th scope="col">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {certificates.map((certificate) => (
+                    <tr key={certificate.id}>
+                      <th scope="row">{certificate.number}</th>
+                      <td>
+                        {formatCalendarDate(certificate.validFrom)} to {formatCalendarDate(certificate.validTo)}
+                      </td>
+                      <td>
+                        {certificateStatus(certificate)}
+                        {certificate.verifiedAt === null ? null : <span className="hint">Verified {formatZambianTime(certificate.verifiedAt)}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableRegion>
           )
         }
       </Loaded>

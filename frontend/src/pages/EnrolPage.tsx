@@ -5,6 +5,7 @@ import { api } from "../api/endpoints";
 import type { Schemas } from "../api/types";
 import { ErrorSummary } from "../components/ErrorSummary";
 import { SubmitButton, TextField } from "../components/Fields";
+import { CopyButton, inGroupsOfFour } from "../components/CopyButton";
 import { QrCode } from "../components/QrCode";
 import { ShownOnce } from "../components/ShownOnce";
 import { Loading } from "../components/States";
@@ -105,12 +106,22 @@ export function EnrolPage() {
             <li>Or type this key into the app by hand.</li>
             <li>Enter the 6-digit code the app now shows.</li>
           </ol>
-          <div className="mb-4">
+          <div className="mb-4 flex flex-col items-start gap-4 sm:flex-row">
             <QrCode value={step.enrolment.otpAuthUri} />
+            <div>
+              <p id="setup-key-label" className="label">
+                Setup key, to type in by hand
+              </p>
+              <p className="mb-2">
+                <code aria-labelledby="setup-key-label" className="break-words font-mono text-lg tracking-wide">
+                  {inGroupsOfFour(step.enrolment.sharedKey)}
+                </code>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <CopyButton text={step.enrolment.sharedKey} label="Copy the key" what="The setup key" />
+              </div>
+            </div>
           </div>
-          <p className="mb-4">
-            Key: <code className="break-all font-mono">{step.enrolment.sharedKey}</code>
-          </p>
           <form onSubmit={onConfirm} noValidate>
             <TextField id="code" label="Code from the app" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => { setCode(event.target.value); }} error={errorFor(problems.problems, "code")} />
             <SubmitButton pending={confirm.pending}>Switch on two-factor</SubmitButton>

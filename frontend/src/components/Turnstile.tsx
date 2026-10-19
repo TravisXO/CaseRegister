@@ -52,6 +52,7 @@ export function Turnstile({ action, onToken, ref }: { action: string; onToken: (
   const container = useRef<HTMLDivElement>(null);
   const widget = useRef<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const siteKey = turnstileSiteKey();
   const report = useRef(onToken);
   useEffect(() => {
@@ -108,7 +109,7 @@ export function Turnstile({ action, onToken, ref }: { action: string; onToken: (
         widget.current = null;
       }
     };
-  }, [siteKey, action]);
+  }, [siteKey, action, attempt]);
 
   if (siteKey === undefined) {
     return <p className="alert-error">The security check is not set up on this site, so this form cannot be used.</p>;
@@ -117,7 +118,21 @@ export function Turnstile({ action, onToken, ref }: { action: string; onToken: (
   return (
     <div className="mb-4">
       <div ref={container} />
-      {failed ? <p className="field-error">The security check did not load. Reload the page and try again.</p> : null}
+      {failed ? (
+        <div role="alert" className="alert-error">
+          <p>The security check could not load or did not finish. This can happen on a slow connection, or if a browser extension is blocking it.</p>
+          <button
+            type="button"
+            className="btn-secondary mt-2"
+            onClick={() => {
+              setFailed(false);
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Try the security check again
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -168,7 +168,9 @@ describe("inviting staff", () => {
     expect(summary).toHaveTextContent("Enter their full name.");
     expect(summary).toHaveTextContent("Enter their email address.");
     expect(summary).toHaveTextContent("Give a reason of 10 to 500 characters.");
-    await waitFor(() => { expect(screen.getByLabelText("Full name")).toHaveFocus(); });
+    await waitFor(() => { expect(summary).toHaveFocus(); }); // focus goes to the list, and each item is a link to its field
+    await userEvent.click(within(summary).getByRole("link", { name: "Enter their full name." }));
+    expect(screen.getByLabelText("Full name")).toHaveFocus();
   });
 });
 

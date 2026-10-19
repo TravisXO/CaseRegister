@@ -7,8 +7,9 @@ export interface FormProblem {
 }
 
 /**
- * The list of what is wrong, above the form. When it appears, keyboard focus moves to the first field that has a problem (or to the
- * list itself when none is about a field), so someone using a keyboard or a screen reader lands on what to fix.
+ * The list of what is wrong, above the form, used by every form. When it appears it takes keyboard focus, and being an alert it is read out, so
+ * someone using a keyboard or a screen reader lands on the whole list first; each item that is about a field is a link that moves focus to
+ * that field. (Each field also names its own problem: aria-invalid, and aria-describedby pointing at the message.)
  */
 export function ErrorSummary({ problems, traceId }: { problems: FormProblem[]; traceId?: string | undefined }) {
   const summary = useRef<HTMLDivElement>(null);
@@ -18,9 +19,7 @@ export function ErrorSummary({ problems, traceId }: { problems: FormProblem[]; t
       return;
     }
 
-    const first = problems.find((problem) => problem.field !== undefined);
-    const field = first?.field === undefined ? null : document.getElementById(first.field);
-    (field ?? summary.current)?.focus();
+    summary.current?.focus();
   }, [problems]);
 
   if (problems.length === 0) {
@@ -40,7 +39,7 @@ export function ErrorSummary({ problems, traceId }: { problems: FormProblem[]; t
             ) : (
               <a
                 href={`#${problem.field}`}
-                className="link"
+                className="link inline-flex min-h-6 items-center py-0.5"
                 onClick={(event) => {
                   event.preventDefault();
                   document.getElementById(problem.field ?? "")?.focus();

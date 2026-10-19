@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { problem, renderApp } from "../test/helpers";
@@ -65,5 +66,54 @@ describe("the check on each form", () => {
     renderApp("/sign-up");
     await screen.findByRole("heading", { name: /apply|sign up|join/i });
     expect(actions).toEqual(["sign-up"]);
+  });
+
+  it("says clearly when the check fails, and offers a way forward that asks Cloudflare again", async () => {
+    const rendered: Record<string, unknown>[] = [];
+    window.turnstile = {
+      render: (_container, options) => {
+        rendered.push(options);
+
+        return "widget";
+      },
+      reset: () => undefined,
+      remove: () => undefined,
+    };
+
+    render(<Turnstile action="sign-in" onToken={() => undefined} />);
+    await waitFor(() => {
+      expect(rendered).toHaveLength(1);
+    });
+    act(() => {
+      (rendered[0]?.["error-callback"] as () => void)();
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The security check could not load or did not finish.");
+    await userEvent.click(within(alert).getByRole("button", { name: "Try the security check again" }));
+
+    await waitFor(() => {
+      expect(rendered).toHaveLength(2);
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("is on the sign-in and sign-up forms and never on the step where the code is asked for", async () => {
+    let drawn = 0;
+    window.turnstile = {
+      render: () => {
+        drawn += 1;
+
+        return "widget";
+      },
+      reset: () => undefined,
+      remove: () => undefined,
+    };
+    server.use(http.get("/api/auth/session", () => problem(401, "Unauthorized")));
+
+    renderApp("/sign-in/code");
+    await screen.findByRole("button", { name: /verify|continue|sign in/i });
+
+    expect(drawn).toBe(0);
   });
 });
