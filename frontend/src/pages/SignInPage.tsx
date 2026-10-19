@@ -7,6 +7,7 @@ import { Turnstile, type TurnstileHandle } from "../components/Turnstile";
 import { useSession } from "../auth/session";
 import { errorFor, problemsFrom, required, type Problems } from "../lib/forms";
 import { useSubmit } from "../lib/hooks";
+import { answerWithPasskey, passkeysSupported } from "../lib/webauthn";
 
 export function SignInPage() {
   const { state, refresh } = useSession();
@@ -48,6 +49,19 @@ export function SignInPage() {
     }
   });
 
+  // A passkey is a password and a second factor in one, so nothing is typed and there is no security check to pass first.
+  const withPasskey = useSubmit(async () => {
+    try {
+      const credential = await answerWithPasskey(await api.passkeySignInOptions());
+      await api.passkeySignIn(credential);
+      setProblems({ problems: [] });
+      await refresh();
+      void navigate("/profile", { replace: true });
+    } catch (error) {
+      setProblems(problemsFrom(error));
+    }
+  });
+
   if (state.status === "ready") {
     return <Navigate to="/profile" replace />;
   }
@@ -79,6 +93,24 @@ export function SignInPage() {
         {errorFor(problems.problems, "turnstile") === undefined ? null : <p className="field-error mb-4">{errorFor(problems.problems, "turnstile")}</p>}
         <SubmitButton pending={submit.pending}>Sign in</SubmitButton>
       </form>
+      {passkeysSupported() ? (
+        <section aria-labelledby="passkey-sign-in-title" className="mt-6">
+          <h2 id="passkey-sign-in-title" className="subheading">
+            Or use a passkey
+          </h2>
+          <p className="mb-2">If you added a passkey to your account, you can sign in with your device&rsquo;s PIN, fingerprint or face instead.</p>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={withPasskey.pending}
+            onClick={() => {
+              void withPasskey.run();
+            }}
+          >
+            Sign in with a passkey
+          </button>
+        </section>
+      ) : null}
       <p className="mt-6">
         New here?{" "}
         <Link to="/sign-up" className="link">
