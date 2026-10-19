@@ -1,10 +1,14 @@
 import type { PendingAction } from "../api/types";
-import { formatZambianTime } from "../lib/time";
+import { roleLabel } from "../lib/roles";
+import { formatRelative, formatZambianTime } from "../lib/time";
 
 const flagText: Record<string, string> = {
   Reapplication: "This person was rejected before and has applied again.",
   DuplicateMembershipNumber: "Another account or another waiting application claims the same membership number.",
 };
+
+/** What a decided proposal says about who decided it: "Confirmed by ...". Pending and expired ones were decided by nobody. */
+const deciderWord: Record<string, string | undefined> = { Confirmed: "Confirmed", Rejected: "Rejected", Withdrawn: "Withdrawn" };
 
 export function describeFlag(flag: string): string {
   return flagText[flag] ?? flag;
@@ -45,15 +49,24 @@ function factsOf(action: PendingAction): PayloadFacts {
  */
 export function ProposalSummary({ action }: { action: PendingAction }) {
   const facts = factsOf(action);
+  const decider = deciderWord[action.status] ?? null;
 
   return (
     <div className="card">
       <p className="mb-3 text-lg font-medium">{action.description}</p>
       <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[11rem_1fr]">
         <dt className="font-medium">Proposed by</dt>
-        <dd>{action.proposedBy.name ?? "An admin"}</dd>
-        <dt className="font-medium">Proposed</dt>
-        <dd>{formatZambianTime(action.proposedAt)}</dd>
+        <dd>
+          {action.proposedBy.name ?? "An admin"}, {formatZambianTime(action.proposedAt)} ({formatRelative(action.proposedAt)})
+        </dd>
+        {decider === null ? null : (
+          <>
+            <dt className="font-medium">{decider} by</dt>
+            <dd>
+              {action.decidedByName ?? "An admin"}, {formatZambianTime(action.decidedAt)} ({formatRelative(action.decidedAt)})
+            </dd>
+          </>
+        )}
         <dt className="font-medium">Reason given</dt>
         <dd className="whitespace-pre-wrap break-words">{action.reason}</dd>
         {action.target.name === null ? null : (
@@ -75,14 +88,14 @@ export function ProposalSummary({ action }: { action: PendingAction }) {
           <>
             <dt className="font-medium">Invited as</dt>
             <dd>
-              {facts.invite.fullName}, {facts.invite.email}, role {facts.invite.role}
+              {facts.invite.fullName}, {facts.invite.email}, as {roleLabel(facts.invite.role)}
             </dd>
           </>
         )}
         {facts.role === undefined ? null : (
           <>
             <dt className="font-medium">Role</dt>
-            <dd>{facts.role}</dd>
+            <dd>{roleLabel(facts.role)}</dd>
           </>
         )}
         {facts.flags.length === 0 ? null : (
@@ -98,11 +111,12 @@ export function ProposalSummary({ action }: { action: PendingAction }) {
           </>
         )}
         <dt className="font-medium">Expires</dt>
-        <dd>{formatZambianTime(action.expiresAt)}</dd>
+        <dd>
+          {formatZambianTime(action.expiresAt)} ({formatRelative(action.expiresAt)})
+        </dd>
         <dt className="font-medium">Status</dt>
         <dd>
           {action.status}
-          {action.decidedAt === null ? null : ` on ${formatZambianTime(action.decidedAt)}`}
           {action.decisionReason === null ? null : `: ${action.decisionReason}`}
         </dd>
         {action.lastRefusal === null ? null : (
@@ -113,6 +127,33 @@ export function ProposalSummary({ action }: { action: PendingAction }) {
         )}
       </dl>
       <p className="mt-3 break-all text-xs text-slate-600">Fingerprint of exactly this proposal: {action.payloadHash.slice(0, 16)}…</p>
+      <details className="mt-2 text-xs text-slate-700">
+        <summary>Technical details (IDs)</summary>
+        <dl className="mt-1 grid grid-cols-1 gap-x-4 sm:grid-cols-[11rem_1fr]">
+          <dt>Proposal</dt>
+          <dd className="break-all font-mono">{action.id}</dd>
+          <dt>Proposer&apos;s account</dt>
+          <dd className="break-all font-mono">{action.proposedBy.userId}</dd>
+          {action.decidedByUserId === null ? null : (
+            <>
+              <dt>Decider&apos;s account</dt>
+              <dd className="break-all font-mono">{action.decidedByUserId}</dd>
+            </>
+          )}
+          {action.target.userId === null ? null : (
+            <>
+              <dt>About (account)</dt>
+              <dd className="break-all font-mono">{action.target.userId}</dd>
+            </>
+          )}
+          {action.target.agencyId === null ? null : (
+            <>
+              <dt>About (agency)</dt>
+              <dd className="break-all font-mono">{action.target.agencyId}</dd>
+            </>
+          )}
+        </dl>
+      </details>
     </div>
   );
 }

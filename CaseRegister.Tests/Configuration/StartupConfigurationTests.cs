@@ -119,9 +119,9 @@ public sealed class StartupConfigurationTests : IDisposable
     }
 
     [Fact]
-    public void The_app_fails_at_startup_when_the_previous_audit_key_is_named_but_missing()
+    public void The_app_fails_at_startup_when_a_retired_audit_key_is_present_but_broken()
     {
-        using var factory = ApiFactory.WithoutDatabase(settings => settings["Audit:PreviousKeyId"] = "k0");
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["Audit:Keys:k0"] = "too short");
 
         AssertStartupFailsMentioning(factory, "Audit:Keys:k0");
     }
@@ -145,6 +145,8 @@ public sealed class StartupConfigurationTests : IDisposable
     [InlineData("Turnstile:SecretKey")]
     [InlineData("Audit:Keys:k1")]
     [InlineData("Proxy:Secret")]
+    [InlineData("Turnstile:ExpectedHostname")]
+    [InlineData("Pseudonym:Keys:p1")]
     [InlineData("Audit:R2:Endpoint")]
     [InlineData("Audit:R2:Bucket")]
     [InlineData("Audit:R2:AccessKeyId")]
@@ -162,6 +164,14 @@ public sealed class StartupConfigurationTests : IDisposable
         {
             Assert.DoesNotContain(value, failure.ToString(), StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void Production_will_not_start_with_the_turnstile_action_check_turned_off()
+    {
+        using var factory = ApiFactory.WithoutDatabase(settings => settings["Turnstile:RequireAction"] = "false", environmentName: "Production");
+
+        AssertStartupFailsMentioning(factory, "Turnstile:RequireAction");
     }
 
     [Fact]

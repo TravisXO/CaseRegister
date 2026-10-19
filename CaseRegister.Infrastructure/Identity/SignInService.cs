@@ -19,15 +19,16 @@ internal sealed class SignInService(
     CredentialChecker credentials,
     SignInThrottle throttle,
     IAuditLog audit,
+    IPseudonymiser pseudonyms,
     Microsoft.Extensions.Logging.ILogger<SignInService> logger) : ISignInService
 {
     public async Task<SignInStatus> SignInAsync(SignInCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default)
     {
         var email = EmailNormaliser.Normalise(command.Email);
-        var subject = AuditSubject.ForAttemptedEmail(email);
+        var subject = pseudonyms.ForEmail(email);
 
         // Bot check first. A failure looks exactly like any other failed sign-in.
-        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, cancellationToken))
+        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, ITurnstileVerifier.Actions.SignIn, cancellationToken))
         {
             return await FailAsync(command.Password, null, subject, remoteIpAddress, "bot check failed", cancellationToken);
         }
@@ -70,7 +71,7 @@ internal sealed class SignInService(
         }
 
         // After a reset the one-time enrolment code comes first. The same short-lived step cookie remembers who passed the password.
-        if (await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.CompletedAt == null && code.RevokedAt == null, cancellationToken))
+        if (await db.EnrolmentCodes.AnyAsync(code => code.UserId == user.Id && code.UsedAt == null && code.RevokedAt == null, cancellationToken))
         {
             var codeStep = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())],

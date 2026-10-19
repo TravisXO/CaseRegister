@@ -46,6 +46,7 @@ internal sealed class MemberSignUpService(
     IOptions<MembershipOptions> membership,
     NotificationDispatcher notifications,
     IAuditLog audit,
+    IPseudonymiser pseudonyms,
     Microsoft.Extensions.Logging.ILogger<MemberSignUpService> logger,
     TimeProvider time) : IMemberSignUpService
 {
@@ -61,7 +62,7 @@ internal sealed class MemberSignUpService(
     public async Task<SignUpResult> SignUpAsync(SignUpCommand command, string? remoteIpAddress, CancellationToken cancellationToken = default)
     {
         // The bot check comes first, as at sign-in.
-        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, cancellationToken))
+        if (!await turnstile.VerifyAsync(command.TurnstileToken, remoteIpAddress, ITurnstileVerifier.Actions.SignUp, cancellationToken))
         {
             return new SignUpResult(SignUpOutcome.BotCheckFailed);
         }
@@ -166,7 +167,7 @@ internal sealed class MemberSignUpService(
 
         try
         {
-            await strategy.ExecuteAsync(async () =>
+            await strategy.ExecuteVerifiedAsync(db, async () =>
             {
                 created = null;
                 db.ChangeTracker.Clear();
@@ -186,8 +187,8 @@ internal sealed class MemberSignUpService(
                 await db.SaveChangesAsync(cancellationToken);
 
                 await LogAsync(AuditAction.MemberSignedUp, user.Id, flags, claims, remoteIpAddress, cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
                 created = user.Id;
+                await transaction.CommitAsync(cancellationToken);
             });
         }
         catch (DbUpdateException)
@@ -202,7 +203,7 @@ internal sealed class MemberSignUpService(
     private async Task ReapplyAsync(ApplicationUser user, Claims claims, string? remoteIpAddress, CancellationToken cancellationToken)
     {
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteVerifiedAsync(db, async () =>
         {
             db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -235,7 +236,7 @@ internal sealed class MemberSignUpService(
             new AuditEntry(
                 AuditAction.MemberSignUpIgnored,
                 ActorUserId: null,
-                Subject: AuditSubject.ForAttemptedEmail(claims.Email),
+                Subject: pseudonyms.ForEmail(claims.Email),
                 IpAddress: remoteIpAddress,
                 Detail: detail),
             logger, cancellationToken);

@@ -483,7 +483,7 @@ public class SignInTests(PostgresFixture postgres)
 
         var entry = Assert.Single(await AuditAsync(factory));
         Assert.DoesNotContain("stranger", entry.Subject ?? string.Empty, StringComparison.OrdinalIgnoreCase);
-        Assert.StartsWith("email-sha256:", entry.Subject, StringComparison.Ordinal);
+        Assert.StartsWith("email-hmac:p1:", entry.Subject, StringComparison.Ordinal);
     }
 
     // --- Helpers -----------------------------------------------------------------------------

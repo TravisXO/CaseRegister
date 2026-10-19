@@ -321,7 +321,7 @@ public class MakerCheckerTests(PostgresFixture postgres)
         Assert.Equal(PendingActionType.AssignRole, listed.Type);
         Assert.Equal(world.Member.Id, listed.TargetUserId);
         Assert.Equal(world.Member.FullName, listed.TargetName);
-        Assert.Equal("Give Test Person the AgencyComplianceOfficer role", listed.Description);
+        Assert.Equal("Give Test Person the Agency compliance officer role", listed.Description);
         Assert.Equal("{\"role\":\"AgencyComplianceOfficer\"}", listed.Payload);
         Assert.Equal(64, listed.PayloadHash.Length);
         Assert.Equal(Proposals.Reason, listed.Reason);

@@ -216,7 +216,8 @@ public sealed class AdminController(IPendingActionService approvals, IAccountAdm
         view.DecidedByUserId,
         view.DecidedAt,
         view.DecisionReason,
-        view.LastRefusedAt is null ? null : new ProposalRefusal(view.LastRefusalCode, view.LastRefusalMessage, view.LastRefusedAt));
+        view.LastRefusedAt is null ? null : new ProposalRefusal(view.LastRefusalCode, view.LastRefusalMessage, view.LastRefusedAt),
+        view.DecidedByName);
 
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 

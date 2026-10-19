@@ -3,6 +3,8 @@
 //  - the sign-in cookie (same origin only: the browser sends it, this code never sees it),
 //  - errors (a ProblemDetails becomes an ApiError that shows a message and a trace id, and nothing else).
 
+import { begin as beginStartingUp, clear as clearStartingUp, isStartingUp, retryWaitingReadsNow, waitBeforeRetry } from "./startup";
+
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const CSRF_HEADER = "X-CSRF-TOKEN";
 const CSRF_PATH = "/api/auth/csrf";
@@ -119,7 +121,12 @@ function loadCsrfToken(): Promise<string> {
     try {
       const response = await fetch(CSRF_PATH, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
       if (!response.ok) {
-        throw await toApiError(response);
+        const failure = await toApiError(response);
+        if (isStartingUp(failure.status, failure.title)) {
+          beginStartingUp(false);
+        }
+
+        throw failure;
       }
 
       const body = (await response.json()) as { token: string };
@@ -143,7 +150,7 @@ export async function request<T>(method: string, path: string, options: RequestO
   return (await response.json()) as T;
 }
 
-async function send(method: string, path: string, options: RequestOptions, retried = false): Promise<Response> {
+async function send(method: string, path: string, options: RequestOptions, retried = false, askedAgainForStartup = false): Promise<Response> {
   const headers: Record<string, string> = { Accept: "application/json" };
   const unsafe = UNSAFE_METHODS.has(method);
   if (unsafe) {
@@ -168,12 +175,27 @@ async function send(method: string, path: string, options: RequestOptions, retri
   }
 
   if (response.ok) {
+    clearStartingUp();
     successHandler?.();
 
     return response;
   }
 
   const error = await toApiError(response);
+
+  // The server is waking up (see startup.ts). A read is asked for again, once, after 30 seconds. A change is never asked for again by the page.
+  if (isStartingUp(error.status, error.title)) {
+    if (method === "GET" && !askedAgainForStartup) {
+      beginStartingUp(true);
+      await waitBeforeRetry();
+
+      return send(method, path, options, retried, true);
+    }
+
+    beginStartingUp(false);
+
+    throw error;
+  }
 
   // A token that has gone stale (after a sign-in somewhere else, say) is refused before anything is done, so asking again is safe.
   if (unsafe && !retried && error.status === 400 && error.detail === ANTIFORGERY_DETAIL) {
@@ -239,4 +261,24 @@ function asProblems(value: unknown): { code: string; message: string }[] {
 
     return typeof entry.code === "string" && typeof entry.message === "string" ? [{ code: entry.code, message: entry.message }] : [];
   });
+}
+
+/**
+ * Asks the cheapest anonymous question there is, to see whether the server is up. If it is, the "starting up" message goes away and any read
+ * that was waiting its 30 seconds is asked again at once. A change that failed is not repeated: the person does it again.
+ */
+export async function checkServerIsUp(): Promise<boolean> {
+  try {
+    const response = await fetch(CSRF_PATH, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      return false;
+    }
+
+    clearStartingUp();
+    retryWaitingReadsNow();
+
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -26,6 +26,9 @@ public sealed class PostgresFixture : IAsyncLifetime
             $"CREATE ROLE {AppRole} LOGIN PASSWORD '{AppRolePassword}'"));
     }
 
+    /// <summary>The container's id, for tests that pause the database for a moment.</summary>
+    public string ContainerId => _container.Id;
+
     public Task InitializeAsync() => _container.StartAsync();
 
     public async Task DisposeAsync()

@@ -28,7 +28,7 @@ internal sealed class RoleAssignmentService(
 
         // All or nothing: the roles, the new security stamp and ending the sessions succeed together or not at all.
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteVerifiedAsync(db, async () =>
         {
             db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -47,9 +47,8 @@ internal sealed class RoleAssignmentService(
 
             // The entry is written in the same transaction as the change: neither exists without the other.
             await audit.WriteAsync(AuditEntryFor(outcome.Plan, change.ChangedByUserId, approvalNote: null), cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
             result = RoleChangeResult.Done;
+            await transaction.CommitAsync(cancellationToken);
         });
 
         return result!;

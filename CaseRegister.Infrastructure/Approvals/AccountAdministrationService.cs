@@ -93,7 +93,7 @@ internal sealed class AccountAdministrationService(
         AdminActionResult? result = null;
         OperationContext context = null!;
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteVerifiedAsync(db, async () =>
         {
             context = new OperationContext(actorId, userId, agencyId, ActionPayloads.Empty);
             db.ChangeTracker.Clear();
@@ -124,8 +124,8 @@ internal sealed class AccountAdministrationService(
                     After: new { state = plan.After }),
                 cancellationToken);
 
-            await transaction.CommitAsync(cancellationToken);
             result = new AdminActionResult(AdminActionOutcome.Done);
+            await transaction.CommitAsync(cancellationToken);
         });
 
         if (result is { Outcome: AdminActionOutcome.Done })
@@ -147,6 +147,7 @@ internal sealed class AccountAdministrationService(
 internal sealed class AdminSeeder(
     AppDbContext db,
     UserManager<ApplicationUser> users,
+    IPasswordHasher<ApplicationUser> hasher,
     RoleAssignmentService roles,
     IAuditLog audit) : IAdminSeeder
 {
@@ -169,11 +170,19 @@ internal sealed class AdminSeeder(
 
     public async Task<SeedAdminResult> SeedAsync(SeedAdminRequest request, CancellationToken cancellationToken = default)
     {
+        // The password rules include the breach check, which calls another service. That is done here, before anything is opened, and not inside the
+        // transaction below (which may be retried): inside it the password is only hashed.
+        var problems = await CheckPasswordAsync(request.Email, request.FullName, request.Password, cancellationToken);
+        if (problems.Count > 0)
+        {
+            return new SeedAdminResult(SeedAdminOutcome.Invalid, problems);
+        }
+
         SeedAdminResult? result = null;
         var activeBefore = 0;
 
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteVerifiedAsync(db, async () =>
         {
             db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -192,7 +201,8 @@ internal sealed class AdminSeeder(
             // process needs two admins before it can approve anyone. No authenticator: they must enrol at first sign-in.
             var user = ApplicationUser.CreateStaff(request.Email, request.FullName, AccountStatus.Approved);
 
-            var created = await users.CreateAsync(user, request.Password); // the same password rules as everyone
+            user.PasswordHash = hasher.HashPassword(user, request.Password);
+            var created = await users.CreateAsync(user);
             if (!created.Succeeded)
             {
                 result = new SeedAdminResult(SeedAdminOutcome.Invalid, [.. created.Errors.Select(error => error.Description)]);
@@ -215,9 +225,8 @@ internal sealed class AdminSeeder(
                     TargetType: "User",
                     Detail: $"created an admin from the command line; active admins before: {activeBefore}; two-factor enrolment required at first sign-in"),
                 cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
             result = new SeedAdminResult(SeedAdminOutcome.Created, [], user.Id);
+            await transaction.CommitAsync(cancellationToken);
         });
 
         return result!;

@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The 100,000 most used passwords seen in breaches (UK National Cyber Security Centre, via SecLists, MIT). Used only when Have I Been Pwned cannot be reached. -->
+    <EmbeddedResource Include="Security\Data\ncsc-100k-passwords.txt.gz" LogicalName="CaseRegister.Infrastructure.ncsc-100k-passwords.txt.gz" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="CaseRegister.Tests" />
   </ItemGroup>
 

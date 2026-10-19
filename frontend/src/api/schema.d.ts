@@ -4166,6 +4166,8 @@ export interface components {
             detail: string | null;
             before: (null) | components["schemas"]["JsonElement"];
             after: (null) | components["schemas"]["JsonElement"];
+            actorName: string | null;
+            targetName: string | null;
         };
         AuditPageResponse: {
             entries: components["schemas"]["AuditEntryResponse"][];
@@ -4190,6 +4192,11 @@ export interface components {
             firstBreak: (null) | components["schemas"]["AuditBreak"];
             /** Format: date-time */
             verifiedAt: string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            newerAnchors: number;
         };
         CertificateInfo: {
             /** Format: uuid */
@@ -4283,6 +4290,7 @@ export interface components {
             decidedAt: string | null;
             decisionReason: string | null;
             lastRefusal: (null) | components["schemas"]["ProposalRefusal"];
+            decidedByName: string | null;
             setupLink?: string | null;
             enrolmentCode?: string | null;
         };

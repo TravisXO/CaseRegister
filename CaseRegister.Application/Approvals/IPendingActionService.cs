@@ -58,7 +58,8 @@ public sealed record PendingActionView(
     string? LastRefusalCode,
     string? LastRefusalMessage,
     DateTimeOffset? LastRefusedAt,
-    string? TargetEmail = null);
+    string? TargetEmail = null,
+    string? DecidedByName = null);
 
 public enum ProposeOutcome
 {

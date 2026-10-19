@@ -7,6 +7,7 @@ using CaseRegister.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CaseRegister.Infrastructure.Approvals;
 
@@ -157,9 +158,10 @@ internal static class Transactions
 {
     /// <summary>
     /// Runs the work in the caller's transaction if there is one, or in a new one that commits at the end. Used so
-    /// that a change and the audit entry about it always succeed or fail together.
+    /// that a change and the audit entry about it always succeed or fail together. A lost commit acknowledgement does not run it twice
+    /// (see <see cref="VerifiedExecution"/>).
     /// </summary>
-    public static async Task RunAsync(AppDbContext db, Func<Task> work, CancellationToken cancellationToken)
+    public static async Task RunAsync(AppDbContext db, Func<Task> work, CancellationToken cancellationToken, Func<CancellationToken, Task<bool>>? verifySucceeded = null)
     {
         if (db.Database.CurrentTransaction is not null)
         {
@@ -168,11 +170,52 @@ internal static class Transactions
         }
 
         var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
-        {
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-            await work();
-            await transaction.CommitAsync(cancellationToken);
-        });
+        await strategy.ExecuteVerifiedAsync(
+            db,
+            async () =>
+            {
+                await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+                await work();
+                await transaction.CommitAsync(cancellationToken);
+            },
+            verifySucceeded);
+    }
+}
+
+internal static class VerifiedExecution
+{
+    /// <summary>
+    /// Runs a unit of work (which opens, and commits, its own transaction) under the retrying execution strategy, with the check that makes a retry safe.
+    ///
+    /// If the connection drops while the commit is on its way, the application cannot know whether the database committed or not. Retrying
+    /// blindly would do everything twice. So before any retry the strategy asks <paramref name="verifySucceeded"/> whether the work is already there;
+    /// the default looks for the last audit entry the attempt wrote (every state-changing transaction ends with one) and, when that exists, the
+    /// work is treated as done and not run again. A unit of work that writes no audit entry cannot be told apart, and is repeated: it must be safe to repeat.
+    /// </summary>
+    public static async Task ExecuteVerifiedAsync(
+        this IExecutionStrategy strategy,
+        AppDbContext db,
+        Func<Task> operation,
+        Func<CancellationToken, Task<bool>>? verifySucceeded = null)
+    {
+        await strategy.ExecuteAsync(
+            (db, operation, verifySucceeded),
+            async (_, state, _) =>
+            {
+                state.db.LastAuditAppend = null;
+                await state.operation();
+
+                return true;
+            },
+            async (_, state, token) =>
+            {
+                var done = state.verifySucceeded is not null
+                    ? await state.verifySucceeded(token)
+                    : state.db.LastAuditAppend is { } last
+                        && await state.db.AuditLog.AsNoTracking().AnyAsync(record => record.Sequence == last.Sequence && record.EntryHash == last.Hash, token);
+
+                return new ExecutionResult<bool>(done, true);
+            },
+            CancellationToken.None);
     }
 }

@@ -12,10 +12,15 @@ public static class TestCertificate
 
     public static string Password => _certificate.Value.Password;
 
-    private static (string, string) Create()
+    /// <summary>Another throwaway certificate, to swap to.</summary>
+    public static (string Base64, string Password) CreateAnother(string name = "CaseRegister Tests Next") => Create(name);
+
+    private static (string, string) Create() => Create("CaseRegister Tests");
+
+    private static (string, string) Create(string name)
     {
         using var rsa = RSA.Create(2048);
-        var request = new CertificateRequest("CN=CaseRegister Tests", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var request = new CertificateRequest($"CN={name}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
 
         var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));

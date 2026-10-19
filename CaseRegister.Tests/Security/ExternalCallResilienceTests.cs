@@ -33,6 +33,7 @@ public sealed class ExternalCallResilienceTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostEnvironment>(new Microsoft.Extensions.Hosting.Internal.HostingEnvironment { EnvironmentName = "Development" });
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Turnstile:SecretKey"] = "test-secret" }).Build());
 
         DependencyInjection.AddExternalClients(services);
@@ -48,7 +49,7 @@ public sealed class ExternalCallResilienceTests
         });
 
         // Only the network is replaced; the resilience handler sits above it as it does in the application.
-        services.AddHttpClient<IBreachedPasswordChecker, HaveIBeenPwnedClient>().ConfigurePrimaryHttpMessageHandler(() => handler);
+        services.AddHttpClient<HaveIBeenPwnedClient>().ConfigurePrimaryHttpMessageHandler(() => handler);
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>().ConfigurePrimaryHttpMessageHandler(() => handler);
 
         return services.BuildServiceProvider();
@@ -62,7 +63,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, call, _) => call < 3 ? Reply(HttpStatusCode.ServiceUnavailable) : Reply(HttpStatusCode.OK, $"{BreachSuffix}:12"));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.Breached, result);
         Assert.Equal(3, handler.Calls); // the first try and two retries
@@ -74,7 +75,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, _, _) => Reply(HttpStatusCode.InternalServerError));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.Unavailable, result);
         Assert.Equal(3, handler.Calls);
@@ -86,7 +87,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, call, _) => call == 1 ? throw new HttpRequestException("connection reset") : Reply(HttpStatusCode.OK, "0018A45C4D1DEF81644B54AB7F969B88D65:1"));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.NotBreached, result);
         Assert.Equal(2, handler.Calls);
@@ -98,7 +99,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, _, _) => Reply(HttpStatusCode.BadRequest));
         await using var provider = Build(handler);
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
 
         Assert.Equal(BreachCheckResult.Unavailable, result);
         Assert.Equal(1, handler.Calls);
@@ -116,7 +117,7 @@ public sealed class ExternalCallResilienceTests
         await using var provider = Build(handler);
         var timer = Stopwatch.StartNew();
 
-        var result = await provider.GetRequiredService<IBreachedPasswordChecker>().CheckAsync("password");
+        var result = await provider.GetRequiredService<HaveIBeenPwnedClient>().CheckAsync("password");
         timer.Stop();
 
         Assert.Equal(BreachCheckResult.Unavailable, result);
@@ -129,10 +130,10 @@ public sealed class ExternalCallResilienceTests
     [Fact]
     public async Task A_verification_that_fails_twice_and_then_works_is_retried_and_passes()
     {
-        var handler = new ScriptedHandler((_, call, _) => call < 3 ? Reply(HttpStatusCode.BadGateway) : Reply(HttpStatusCode.OK, "{\"success\":true}"));
+        var handler = new ScriptedHandler((_, call, _) => call < 3 ? Reply(HttpStatusCode.BadGateway) : Reply(HttpStatusCode.OK, "{\"success\":true,\"action\":\"sign-in\"}"));
         await using var provider = Build(handler);
 
-        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", "203.0.113.5");
+        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", "203.0.113.5", "sign-in");
 
         Assert.True(passed);
         Assert.Equal(3, handler.Calls);
@@ -144,7 +145,7 @@ public sealed class ExternalCallResilienceTests
         var handler = new ScriptedHandler((_, _, _) => Reply(HttpStatusCode.ServiceUnavailable));
         await using var provider = Build(handler);
 
-        Assert.False(await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null));
+        Assert.False(await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, "sign-in"));
         Assert.Equal(3, handler.Calls);
     }
 
@@ -160,7 +161,7 @@ public sealed class ExternalCallResilienceTests
         await using var provider = Build(handler);
         var timer = Stopwatch.StartNew();
 
-        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null);
+        var passed = await provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, "sign-in");
         timer.Stop();
 
         Assert.False(passed);
@@ -179,7 +180,7 @@ public sealed class ExternalCallResilienceTests
         await using var provider = Build(handler);
         using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, cancel.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.GetRequiredService<ITurnstileVerifier>().VerifyAsync("token-1", null, "sign-in", cancel.Token));
     }
 
     // --- The settings -------------------------------------------------------------------------------------------
@@ -206,7 +207,7 @@ public sealed class ExternalCallResilienceTests
         using var provider = services.BuildServiceProvider();
 
         var options = provider.GetRequiredService<IOptionsMonitor<Microsoft.Extensions.Http.Resilience.HttpStandardResilienceOptions>>();
-        foreach (var name in new[] { "IBreachedPasswordChecker-standard", "ITurnstileVerifier-standard" })
+        foreach (var name in new[] { "HaveIBeenPwnedClient-standard", "ITurnstileVerifier-standard" })
         {
             var settings = options.Get(name);
 

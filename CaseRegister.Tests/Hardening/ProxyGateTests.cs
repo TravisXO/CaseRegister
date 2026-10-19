@@ -80,7 +80,7 @@ public sealed class ProxyGateTests(ProductionApp app) : IClassFixture<Production
 
         Assert.DoesNotContain("secret", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("proxy", text, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("default-src 'none'; frame-ancestors 'none'", Assert.Single(response.Headers.GetValues("Content-Security-Policy")));
+        Assert.Equal("default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'", Assert.Single(response.Headers.GetValues("Content-Security-Policy")));
         Assert.Equal("nosniff", Assert.Single(response.Headers.GetValues("X-Content-Type-Options")));
         Assert.False(response.Headers.Contains("Server"));
     }

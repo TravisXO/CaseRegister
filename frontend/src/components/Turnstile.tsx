@@ -44,7 +44,11 @@ function loadTurnstile(): Promise<void> {
 }
 
 /** The Cloudflare Turnstile check. It tells the form its token, or null when it has not been passed (or has run out). */
-export function Turnstile({ onToken, ref }: { onToken: (token: string | null) => void; ref?: Ref<TurnstileHandle> }) {
+/**
+ * The check for one form. `action` names the form ("sign-in", "sign-up"): Cloudflare puts it into the token, and the API refuses a
+ * token made for a different form, so one earned on the sign-up page cannot be used to try passwords on the sign-in page.
+ */
+export function Turnstile({ action, onToken, ref }: { action: string; onToken: (token: string | null) => void; ref?: Ref<TurnstileHandle> }) {
   const container = useRef<HTMLDivElement>(null);
   const widget = useRef<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -77,6 +81,7 @@ export function Turnstile({ onToken, ref }: { onToken: (token: string | null) =>
 
         widget.current = window.turnstile.render(container.current, {
           sitekey: siteKey,
+          action,
           callback: (token: string) => {
             report.current(token);
           },
@@ -103,7 +108,7 @@ export function Turnstile({ onToken, ref }: { onToken: (token: string | null) =>
         widget.current = null;
       }
     };
-  }, [siteKey]);
+  }, [siteKey, action]);
 
   if (siteKey === undefined) {
     return <p className="alert-error">The security check is not set up on this site, so this form cannot be used.</p>;

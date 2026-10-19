@@ -529,7 +529,7 @@ public class AuditChainTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Key_rotation_old_entries_still_verify_when_the_old_key_is_kept_as_previous()
+    public async Task Key_rotation_old_entries_still_verify_when_the_old_key_is_kept()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         await factory.WriteManyAsync(3, "old");
@@ -537,7 +537,6 @@ public class AuditChainTests(PostgresFixture postgres)
         await using var rotated = factory.CreateSibling(settings =>
         {
             settings["Audit:CurrentKeyId"] = ApiFactory.SecondKeyId;
-            settings["Audit:PreviousKeyId"] = ApiFactory.TestKeyId;
             settings[$"Audit:Keys:{ApiFactory.SecondKeyId}"] = ApiFactory.SecondKeyBase64;
         });
         await rotated.WriteManyAsync(2, "new");
@@ -550,7 +549,7 @@ public class AuditChainTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Once_a_key_is_no_longer_current_or_previous_entries_signed_with_it_no_longer_verify()
+    public async Task Once_a_key_is_removed_from_the_configuration_entries_signed_with_it_cannot_be_verified()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
         await factory.WriteManyAsync(3, "old");
@@ -558,7 +557,6 @@ public class AuditChainTests(PostgresFixture postgres)
         await using var dropped = factory.CreateSibling(settings =>
         {
             settings["Audit:CurrentKeyId"] = ApiFactory.SecondKeyId;
-            settings.Remove("Audit:PreviousKeyId");
             settings.Remove($"Audit:Keys:{ApiFactory.TestKeyId}");
             settings[$"Audit:Keys:{ApiFactory.SecondKeyId}"] = ApiFactory.SecondKeyBase64;
         });
@@ -569,6 +567,48 @@ public class AuditChainTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task After_two_rotations_entries_signed_with_every_past_key_still_verify_and_only_the_current_key_signs()
+    {
+        await using var first = await ApiFactory.CreateAsync(postgres);
+        await first.WriteManyAsync(2, "one");
+
+        // The first rotation: k2 signs from now on, k1 is kept.
+        await using var second = first.CreateSibling(settings =>
+        {
+            settings["Audit:CurrentKeyId"] = ApiFactory.SecondKeyId;
+            settings[$"Audit:Keys:{ApiFactory.SecondKeyId}"] = ApiFactory.SecondKeyBase64;
+        });
+        await second.WriteManyAsync(2, "two");
+
+        // The second rotation: k3 signs, and k1 and k2 are both kept (the old design kept only one past key and lost k1 here).
+        await using var third = first.CreateSibling(settings =>
+        {
+            settings["Audit:CurrentKeyId"] = "k3";
+            settings[$"Audit:Keys:{ApiFactory.SecondKeyId}"] = ApiFactory.SecondKeyBase64;
+            settings["Audit:Keys:k3"] = Convert.ToBase64String(Enumerable.Range(201, 32).Select(index => (byte)index).ToArray());
+        });
+        await third.WriteManyAsync(2, "three");
+
+        var entries = await third.AuditEntriesAsync();
+        Assert.Equal(["k1", "k1", "k2", "k2", "k3", "k3"], entries.Select(entry => entry.KeyId));
+        var result = await third.VerifyAuditAsync();
+        Assert.True(result.Intact, result.FirstBreak?.Message);
+        Assert.Equal(6, result.EntriesChecked);
+
+        // Dropping a retired key from the configuration is the one thing that makes old entries unverifiable, and it is reported.
+        await using var forgotten = first.CreateSibling(settings =>
+        {
+            settings["Audit:CurrentKeyId"] = "k3";
+            settings.Remove($"Audit:Keys:{ApiFactory.TestKeyId}");
+            settings[$"Audit:Keys:{ApiFactory.SecondKeyId}"] = ApiFactory.SecondKeyBase64;
+            settings["Audit:Keys:k3"] = Convert.ToBase64String(Enumerable.Range(201, 32).Select(index => (byte)index).ToArray());
+        });
+        var broken = await forgotten.VerifyAuditAsync();
+        Assert.Equal(AuditBreakKind.UnknownKey, broken.FirstBreak!.Kind);
+        Assert.Equal(1, broken.FirstBreak.Sequence);
+    }
+
+    [Fact]
     public async Task An_application_that_does_not_know_the_newer_key_reports_the_entries_signed_with_it()
     {
         await using var factory = await ApiFactory.CreateAsync(postgres);
@@ -576,7 +616,6 @@ public class AuditChainTests(PostgresFixture postgres)
         await using var rotated = factory.CreateSibling(settings =>
         {
             settings["Audit:CurrentKeyId"] = ApiFactory.SecondKeyId;
-            settings["Audit:PreviousKeyId"] = ApiFactory.TestKeyId;
             settings[$"Audit:Keys:{ApiFactory.SecondKeyId}"] = ApiFactory.SecondKeyBase64;
         });
         await rotated.WriteManyAsync(1, "new");

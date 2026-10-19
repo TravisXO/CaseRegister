@@ -11,7 +11,7 @@ public sealed class OptionsValidationTests
     // Every options class in the solution. A new one has to be added here, which means it has to be validated.
     private static readonly string[] _expectedOptionsClasses =
     [
-        "AuditOptions", "DatabaseOptions", "DeploymentOptions", "ExternalCallOptions", "MembershipOptions", "ProxyOptions", "RateLimitingOptions", "StaffInviteOptions", "TurnstileOptions", "TwoFactorOptions",
+        "AuditOptions", "DatabaseOptions", "DeploymentOptions", "ExternalCallOptions", "MembershipOptions", "ProxyOptions", "PseudonymOptions", "RateLimitingOptions", "StaffInviteOptions", "TurnstileOptions", "TwoFactorOptions",
     ];
 
     [Fact]
@@ -38,6 +38,8 @@ public sealed class OptionsValidationTests
     [InlineData("Turnstile:SecretKey", " ", "Turnstile:SecretKey", null)]
     [InlineData("Audit:CurrentKeyId", " ", "Audit:CurrentKeyId", null)]
     [InlineData("Audit:Keys:k1", "dG9vLXNob3J0LXNlY3JldC1rZXk=", "Audit:Keys:k1", "dG9vLXNob3J0")]
+    [InlineData("Pseudonym:CurrentKeyId", " ", "Pseudonym:CurrentKeyId", null)]
+    [InlineData("Pseudonym:Keys:p1", "dG9vLXNob3J0LXNlY3JldC1rZXk=", "Pseudonym:Keys:p1", "dG9vLXNob3J0")]
     [InlineData("Membership:DisplayPrefix", "9secret9", "Membership:DisplayPrefix", "9secret9")]
     [InlineData("Invites:SetupPageUrl", "ftp://secret-host-4412.example/setup", "Invites:SetupPageUrl", "secret-host-4412")]
     [InlineData("Deployment:Mode", "Production", "Deployment:Mode", null)]

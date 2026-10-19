@@ -16,6 +16,51 @@ namespace CaseRegister.Infrastructure.Persistence;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options), IDataProtectionKeyContext
 {
+    /// <summary>
+    /// The last audit entry appended during the attempt now running. If a commit's acknowledgement is lost, this is how the retrying execution
+    /// strategy tells whether the transaction really committed (its last audit entry is there) before it would run the work a second time.
+    /// </summary>
+    internal (long Sequence, string Hash)? LastAuditAppend { get; set; }
+
+    private readonly List<Func<CancellationToken, Task>> _afterCommit = [];
+    private bool _anchorRequested;
+
+    /// <summary>
+    /// Work to do once the database transaction in progress has committed, and only then: anything outside Postgres (storing an audit anchor)
+    /// must not run inside a unit of work that can still be retried or rolled back. The interceptor runs it after the commit and drops it on a rollback.
+    /// </summary>
+    internal void AfterCommit(Func<CancellationToken, Task> work) => _afterCommit.Add(work);
+
+    /// <summary>Asks for an audit anchor to be stored after the commit. Asking twice in one transaction asks once.</summary>
+    internal bool TryRequestAnchor()
+    {
+        if (_anchorRequested)
+        {
+            return false;
+        }
+
+        _anchorRequested = true;
+
+        return true;
+    }
+
+    internal async Task RunAfterCommitAsync(CancellationToken cancellationToken)
+    {
+        var work = _afterCommit.ToList();
+        DropAfterCommit();
+
+        foreach (var item in work)
+        {
+            await item(cancellationToken);
+        }
+    }
+
+    internal void DropAfterCommit()
+    {
+        _afterCommit.Clear();
+        _anchorRequested = false;
+    }
+
     /// <summary>The data protection key ring (cookie and token encryption keys), kept in the database.</summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
@@ -23,7 +68,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<AuditChainHead> AuditChainHeads => Set<AuditChainHead>();
 
-    public DbSet<LockoutEvent> LockoutEvents => Set<LockoutEvent>();
 
     public DbSet<AuthenticatorRecord> Authenticators => Set<AuthenticatorRecord>();
 

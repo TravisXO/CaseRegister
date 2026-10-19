@@ -40,6 +40,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>32 bytes, for tests only.</summary>
     public static readonly string TestKeyBase64 = Convert.ToBase64String(Enumerable.Range(1, 32).Select(index => (byte)index).ToArray());
 
+    public const string PseudonymKeyId = "p1";
+
+    public static readonly string PseudonymKeyBase64 = Convert.ToBase64String(Enumerable.Range(51, 32).Select(index => (byte)index).ToArray());
+
     public static readonly string SecondKeyBase64 = Convert.ToBase64String(Enumerable.Range(101, 32).Select(index => (byte)index).ToArray());
 
     private readonly Dictionary<string, string?> _settings;
@@ -90,12 +94,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             // The audit chain: a fixed test key.
             ["Audit:CurrentKeyId"] = TestKeyId,
             [$"Audit:Keys:{TestKeyId}"] = TestKeyBase64,
+
+            // The key that pseudonymises email addresses in audit entries.
+            ["Pseudonym:CurrentKeyId"] = PseudonymKeyId,
+            [$"Pseudonym:Keys:{PseudonymKeyId}"] = PseudonymKeyBase64,
         };
 
         // Production will not start without the proxy secret and the R2 bucket for the anchors. The bucket is never contacted: the test host is given its own anchor store.
         if (environmentName == "Production")
         {
             _settings["Proxy:Secret"] = ProxyTestSecret;
+            _settings["Turnstile:ExpectedHostname"] = "app.example.test";
             _settings["Audit:R2:Endpoint"] = "https://account-for-tests.r2.cloudflarestorage.com";
             _settings["Audit:R2:Bucket"] = "anchors-for-tests";
             _settings["Audit:R2:AccessKeyId"] = "access-key-for-tests";

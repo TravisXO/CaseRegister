@@ -41,6 +41,7 @@ public static class DependencyInjection
     {
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<EntityTimestampInterceptor>();
+        services.AddSingleton<AfterCommitInterceptor>();
 
         AddDatabase(services);
         AddMembership(services);
@@ -76,7 +77,10 @@ public static class DependencyInjection
                 ?? throw new InvalidOperationException($"{DatabaseOptions.DefaultKey} is not configured.");
 
             AppDbContextOptions.Configure(builder, connectionString);
-            builder.AddInterceptors(provider.GetRequiredService<EntityTimestampInterceptor>());
+            builder.AddInterceptors(provider.GetRequiredService<EntityTimestampInterceptor>(), provider.GetRequiredService<AfterCommitInterceptor>());
+
+            // Nothing registers more in the application. Tests do, to make a connection drop at an awkward moment.
+            builder.AddInterceptors(provider.GetServices<Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor>());
         });
     }
 
@@ -187,7 +191,6 @@ public static class DependencyInjection
             {
                 var section = configuration.GetSection(AuditOptions.SectionName);
                 options.CurrentKeyId = section["CurrentKeyId"] ?? string.Empty;
-                options.PreviousKeyId = section["PreviousKeyId"];
                 options.AnchorFilePath = section["AnchorFilePath"];
                 section.GetSection("R2").Bind(options.R2);
                 foreach (var key in section.GetSection("Keys").GetChildren())
@@ -198,6 +201,21 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         services.AddSingleton<IAuditKeyring, AuditKeyring>();
+
+        // The separate key that pseudonymises email addresses in audit entries. Like the audit keys it comes from configuration only, and startup fails without it.
+        services.AddSingleton<IValidateOptions<PseudonymOptions>, PseudonymOptionsValidator>();
+        services.AddOptions<PseudonymOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+            {
+                var section = configuration.GetSection(PseudonymOptions.SectionName);
+                options.CurrentKeyId = section["CurrentKeyId"] ?? string.Empty;
+                foreach (var key in section.GetSection("Keys").GetChildren())
+                {
+                    options.Keys[key.Key] = key.Value ?? string.Empty;
+                }
+            })
+            .ValidateOnStart();
+        services.AddSingleton<IPseudonymiser, Pseudonymiser>();
 
         // Where daily anchors go. Production has a Cloudflare R2 bucket (and refuses to start without one); Development may use a local file
         // or nothing. There is no scheduler: the first audit entry written on a new Zambian day writes that day's anchor (see ChainedAuditLog).
@@ -224,6 +242,8 @@ public static class DependencyInjection
         services.AddScoped<AuditChainStore>();
         services.AddScoped<IAuditLog, ChainedAuditLog>();
         services.AddScoped<IAuditAnchoring, AuditAnchoring>();
+        services.AddScoped<AuditAnchorPublisher>();
+        services.AddScoped<AuditAnchorGate>();
         services.AddScoped<IAuditVerifier, AuditVerifier>();
         services.AddScoped<IAuditReader, AuditReader>();
     }
@@ -280,8 +300,11 @@ public static class DependencyInjection
 
     private static void AddKeyProtection(IServiceCollection services, IConfiguration configuration)
     {
-        // Throws now, at startup, if the certificate is missing or unreadable.
-        var certificate = DataProtectionCertificate.Load(configuration);
+        // Throws now, at startup, if the certificate is missing or unreadable. Held for as long as the application runs.
+        var certificates = DataProtectionCertificates.Load(configuration);
+        services.AddSingleton(certificates);
+        services.AddHostedService<KeyRingGuard>();
+        services.AddScoped<KeyVerifier>();
 
         services.AddDataProtection()
             // Default: derived from the content root, which would change between machines and deployments.
@@ -296,7 +319,9 @@ public static class DependencyInjection
                 ValidationAlgorithm = ValidationAlgorithm.HMACSHA256,
             })
             .PersistKeysToDbContext<AppDbContext>()
-            .ProtectKeysWithCertificate(certificate);
+            // New keys are protected with the current certificate. Older certificates are listed only so that keys protected with them can still be read.
+            .ProtectKeysWithCertificate(certificates.Current)
+            .UnprotectKeysWithAnyCertificate([.. certificates.All]);
     }
 
     internal static void AddExternalClients(IServiceCollection services)
@@ -304,25 +329,61 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<ExternalCallOptions>, ExternalCallOptionsValidator>();
         services.AddOptions<ExternalCallOptions>().BindConfiguration(ExternalCallOptions.SectionName).ValidateOnStart();
 
-        services.AddHttpClient<IBreachedPasswordChecker, HaveIBeenPwnedClient>(client =>
+        services.AddHttpClient<HaveIBeenPwnedClient>(client =>
         {
             client.BaseAddress = new Uri(HaveIBeenPwnedClient.BaseAddress);
             client.Timeout = ExternalCalls.ClientTimeout;
             client.DefaultRequestHeaders.UserAgent.ParseAdd(ApplicationName);
         }).AddExternalCallResilience();
 
+        // Have I Been Pwned first; the bundled list, with a note in the audit log, only if it cannot be reached.
+        services.AddScoped<IBreachedPasswordChecker, ResilientBreachedPasswordChecker>();
+
         services.AddOptions<TurnstileOptions>()
-            .Configure<IConfiguration>((options, configuration) => options.SecretKey = configuration[TurnstileOptions.SecretKeyKey])
+            .Configure<IConfiguration>((options, configuration) =>
+            {
+                options.SecretKey = configuration[TurnstileOptions.SecretKeyKey];
+                options.ExpectedHostname = configuration[TurnstileOptions.ExpectedHostnameKey];
+                options.RequireAction = !bool.TryParse(configuration[TurnstileOptions.RequireActionKey], out var require) || require;
+            })
             .Validate(
                 options => !string.IsNullOrWhiteSpace(options.SecretKey),
                 $"{TurnstileOptions.SecretKeyKey} is not configured. Set it with 'dotnet user-secrets' or the Turnstile__SecretKey environment variable.")
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<TurnstileOptions>, TurnstileOptionsValidator>();
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>(client => client.Timeout = ExternalCalls.ClientTimeout).AddExternalCallResilience();
     }
 }
 
 /// <summary>Stops startup, with the reason, if the audit keys are not usable.</summary>
+/// <summary>Production must say which site the checks are for and must check the form's action: without both, a token earned elsewhere would do.</summary>
+internal sealed class TurnstileOptionsValidator(Microsoft.Extensions.Hosting.IHostEnvironment environment) : IValidateOptions<TurnstileOptions>
+{
+    public ValidateOptionsResult Validate(string? name, TurnstileOptions options)
+    {
+        if (!environment.IsProduction())
+        {
+            return ValidateOptionsResult.Success;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ExpectedHostname))
+        {
+            return ValidateOptionsResult.Fail($"{TurnstileOptions.ExpectedHostnameKey} is not configured. Set the Turnstile__ExpectedHostname environment variable to the hostname of the site (the Pages hostname), so a token earned on another site is refused.");
+        }
+
+        return options.RequireAction
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail($"{TurnstileOptions.RequireActionKey} must not be turned off in Production: it is what stops a token from one form being used on another.");
+    }
+}
+
+internal sealed class PseudonymOptionsValidator : IValidateOptions<PseudonymOptions>
+{
+    public ValidateOptionsResult Validate(string? name, PseudonymOptions options) =>
+        options.Problem() is { } problem ? ValidateOptionsResult.Fail(problem) : ValidateOptionsResult.Success;
+}
+
 internal sealed class AuditOptionsValidator(Microsoft.Extensions.Hosting.IHostEnvironment environment) : IValidateOptions<AuditOptions>
 {
     public ValidateOptionsResult Validate(string? name, AuditOptions options)

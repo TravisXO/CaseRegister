@@ -8,8 +8,8 @@ namespace CaseRegister.Infrastructure.Persistence;
 /// </summary>
 internal static class AppDbContextOptions
 {
-    private const int MaxRetryCount = 5;
-    private static readonly TimeSpan _maxRetryDelay = TimeSpan.FromSeconds(10);
+    private const int MaxRetryCount = 3;
+    private static readonly TimeSpan _maxRetryDelay = TimeSpan.FromSeconds(5);
 
     // Explicit rather than the provider default, so a hung query cannot hold a request open forever.
     private const int CommandTimeoutSeconds = 30;

@@ -29,7 +29,7 @@ describe("my profile", () => {
     expect(await screen.findByText("Ada Mwansa")).toBeInTheDocument();
     expect(screen.getByText("ada@example.test")).toBeInTheDocument();
     expect(screen.getByText("Kafue Properties")).toBeInTheDocument();
-    expect(screen.getByText("RegisteredAgent")).toBeInTheDocument();
+    expect(screen.getByText("Registered agent")).toBeInTheDocument();
     expect(await screen.findByText("9611/2026")).toBeInTheDocument();
     expect(screen.getByText("1 Jan 2026 to 31 Dec 2026")).toBeInTheDocument();
     expect(screen.getByText("Current and verified")).toBeInTheDocument();

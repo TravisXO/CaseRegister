@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLIENT_GEO_HEADER, CLIENT_IP_HEADER, DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, SECRET_HEADER, handle, onRequest, type ProxyEnv } from "./[[path]]";
+import { CLIENT_GEO_HEADER, CLIENT_IP_HEADER, DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, SECRET_HEADER, STARTING_UP_TITLE, handle, onRequest, type ProxyEnv } from "./[[path]]";
 
 const SECRET = "test-secret-test-secret-test-secret-test-secret";
 const HOST = "caseregister.example.test";
@@ -17,7 +17,8 @@ function lastCall(): { url: string; init: RequestInit; headers: Headers } {
   return { url: call[0].toString(), init: call[1], headers: new Headers(call[1].headers) };
 }
 
-const answer = (body = "{}", init: ResponseInit = {}) => () => Promise.resolve(new Response(body, { status: 200, ...init }));
+// The API always says it is JSON (or says nothing, when there is nothing to say); a test answer does the same unless it is about something else.
+const answer = (body = "{}", init: ResponseInit = {}) => () => Promise.resolve(new Response(body, { status: 200, ...init, headers: { "Content-Type": "application/json", ...(init.headers as Record<string, string> | undefined) } }));
 
 function send(path: string, init: RequestInit = {}, env: ProxyEnv = goodEnv, host = HOST): Promise<Response> {
   return handle(new Request(`https://${host}${path}`, init), env);
@@ -204,6 +205,69 @@ describe("what comes back", () => {
     expect(response.headers.getSetCookie()).toEqual(cookies);
   });
 
+  it("passes several Set-Cookie headers through one by one and in order, with every attribute untouched, however they look joined", async () => {
+    // A cookie's own Expires holds a comma, which is why several cannot safely be joined into one header: each must stay a header of its own.
+    const cookies = [
+      "__Host-cr=abc123; path=/; secure; httponly; samesite=strict",
+      "__Host-cr-2fa=step456; path=/; secure; httponly; samesite=strict; expires=Wed, 21 Oct 2026 07:28:00 GMT",
+      "__Host-cr-csrf=def789; path=/; secure; httponly; samesite=strict; max-age=3600",
+      "__Host-cr-2fa=; path=/; secure; httponly; samesite=strict; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    ];
+    fetchMock.mockImplementation(() => {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      for (const cookie of cookies) {
+        headers.append("Set-Cookie", cookie);
+      }
+
+      return Promise.resolve(new Response("{}", { status: 200, headers }));
+    });
+
+    const response = await send("/api/auth/2fa/verify", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+
+    expect(response.headers.getSetCookie()).toEqual(cookies);
+    expect(response.headers.getSetCookie()).toHaveLength(4);
+  });
+
+  it("never adds a Domain to a cookie, so a __Host- cookie stays valid and stays on this site only", async () => {
+    fetchMock.mockImplementation(() => {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      headers.append("Set-Cookie", "__Host-cr=abc; path=/; secure; httponly; samesite=strict");
+      headers.append("Set-Cookie", "plain=1; path=/");
+
+      return Promise.resolve(new Response("{}", { status: 200, headers }));
+    });
+
+    const response = await send("/api/auth/sign-in", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+
+    for (const cookie of response.headers.getSetCookie()) {
+      expect(cookie.toLowerCase()).not.toContain("domain");
+    }
+
+    expect(response.headers.getSetCookie()[0]).toBe("__Host-cr=abc; path=/; secure; httponly; samesite=strict");
+  });
+
+  it("never rewrites a cookie's Path, whatever it is and whatever address the request came to", async () => {
+    const cookies = ["a=1; path=/", "b=2; path=/api/auth", "c=3; Path=/api; Secure", "d=4"];
+    fetchMock.mockImplementation(() => {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      for (const cookie of cookies) {
+        headers.append("Set-Cookie", cookie);
+      }
+
+      return Promise.resolve(new Response("{}", { status: 200, headers }));
+    });
+
+    const response = await send("/api/auth/sign-in?next=/profile", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+
+    expect(response.headers.getSetCookie()).toEqual(cookies); // not even a Path added to the one that had none
+  });
+
+  it("sends the visitor's cookies on to the API as one header, untouched", async () => {
+    await send("/api/me", { headers: { Cookie: "__Host-cr=abc; __Host-cr-2fa=def" } });
+
+    expect(lastCall().headers.get("cookie")).toBe("__Host-cr=abc; __Host-cr-2fa=def");
+  });
+
   it("passes the status, the body and the headers that matter, including a rate limit's Retry-After", async () => {
     fetchMock.mockImplementation(answer('{"title":"Too many requests"}', { status: 429, headers: { "Content-Type": "application/problem+json", "Retry-After": "42", "Cache-Control": "no-store" } }));
 
@@ -349,18 +413,76 @@ describe("limits", () => {
     expect(timeout).toHaveBeenCalledWith(expected);
   });
 
-  it("is a 504 when the API does not answer in time and a 502 when it cannot be reached, with nothing about why", async () => {
+  it("is a 'server is starting up' 503 when the API does not answer in time or cannot be reached, with nothing about why", async () => {
     fetchMock.mockRejectedValueOnce(new DOMException("The operation timed out at https://api.example.test with cookie abc", "TimeoutError"));
     const slow = await send("/api/auth/session", { headers: { Cookie: "__Host-cr=abc" } });
     fetchMock.mockRejectedValueOnce(new TypeError("fetch failed: connect ECONNREFUSED api.example.test"));
     const down = await send("/api/auth/session", { headers: { Cookie: "__Host-cr=abc" } });
 
-    expect(slow.status).toBe(504);
-    expect(down.status).toBe(502);
+    for (const response of [slow, down]) {
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("30");
+      expect(response.headers.get("Content-Type")).toBe("application/problem+json");
+    }
+
     for (const text of [await slow.text(), await down.text()]) {
       expect(text).not.toContain("api.example.test");
       expect(text).not.toContain("abc");
       expect(text).not.toContain("ECONNREFUSED");
+    }
+  });
+});
+
+describe("when the API is asleep or starting", () => {
+  const startingUp = async (response: Response) => {
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("30");
+    expect(response.headers.get("Content-Type")).toBe("application/problem+json");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ title: STARTING_UP_TITLE, status: 503 });
+  };
+
+  it.each([502, 503, 504])("turns the host's %i into the same 503 problem, and passes none of its page on", async (status) => {
+    fetchMock.mockImplementation(answer("<html><body>Service Unavailable: render-secret-detail</body></html>", { status, headers: { "Content-Type": "text/html", "Set-Cookie": "x=y" } }));
+
+    const response = await send("/api/me");
+
+    await startingUp(response);
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it.each(["text/html; charset=utf-8", "text/plain", "application/xml"])("turns an answer that is %s, not JSON, into the same 503 problem, even with a 200 or a 404", async (type) => {
+    fetchMock.mockImplementation(answer("<html>Not Found</html>", { status: 200, headers: { "Content-Type": type } }));
+    await startingUp(await send("/api/me"));
+
+    fetchMock.mockImplementation(answer("<html>Not Found</html>", { status: 404, headers: { "Content-Type": type } }));
+    await startingUp(await send("/api/me"));
+  });
+
+  it("lets through everything the API really says: JSON, problem+json and empty answers, whatever the status", async () => {
+    for (const [status, type, body] of [
+      [200, "application/json", '{"ok":true}'],
+      [401, "application/problem+json", '{"title":"Unauthorized"}'],
+      [429, "application/problem+json; charset=utf-8", '{"title":"Too many"}'],
+      [500, "application/problem+json", '{"title":"Something went wrong"}'],
+    ] as const) {
+      fetchMock.mockImplementation(answer(body, { status, headers: { "Content-Type": type } }));
+      const response = await send("/api/me");
+      expect(response.status).toBe(status);
+      expect(await response.text()).toBe(body);
+    }
+
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    expect((await send("/api/auth/sign-out", { method: "POST", body: "{}" })).status).toBe(204);
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 404 })));
+    expect((await send("/api/nothing")).status).toBe(404);
+  });
+
+  it("does the same for every method, because the page decides what to retry", async () => {
+    fetchMock.mockImplementation(answer("<html></html>", { status: 502, headers: { "Content-Type": "text/html" } }));
+
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
+      await startingUp(await send("/api/me", { method, body: method === "GET" ? undefined : "{}" }));
     }
   });
 });

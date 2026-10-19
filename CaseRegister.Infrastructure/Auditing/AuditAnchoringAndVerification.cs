@@ -97,7 +97,7 @@ internal sealed partial class AuditAnchoring(AppDbContext db, AuditChainStore st
             {
                 await store.LockHeadAsync(cancellationToken);
                 await db.AuditChainHeads.Where(row => row.Id == AuditChainHead.OnlyId)
-                    .ExecuteUpdateAsync(set => set.SetProperty(row => row.LastAnchorDate, AuditChainFormat.ZambianDate(anchor.CreatedAt)), cancellationToken);
+                    .ExecuteUpdateAsync(set => set.SetProperty(row => row.LastAnchorDate, AuditChainFormat.ZambianDate(anchor.CreatedAt)).SetProperty(row => row.LastAnchorAt, anchor.CreatedAt).SetProperty(row => row.AnchorDeferred, false), cancellationToken);
                 await audit.WriteAsync(
                     new AuditEntry(AuditAction.AuditAnchored, actorUserId, Subject: head.LastSequence.ToString(CultureInfo.InvariantCulture), TargetType: "AuditLog", Detail: $"anchored sequence {head.LastSequence}"),
                     cancellationToken);
@@ -120,9 +120,9 @@ internal sealed partial class AuditVerifier(
 {
     private const int BatchSize = 1000;
 
-    public async Task<AuditVerification> VerifyAndRecordAsync(bool fromLastGoodAnchor, Guid? actorUserId, string? remoteIpAddress, CancellationToken cancellationToken = default)
+    public async Task<AuditVerification> VerifyAndRecordAsync(bool fromLastGoodAnchor, Guid? actorUserId, string? remoteIpAddress, bool restoredBackup = false, CancellationToken cancellationToken = default)
     {
-        var result = await VerifyAsync(fromLastGoodAnchor, cancellationToken);
+        var result = await VerifyAsync(fromLastGoodAnchor, restoredBackup, cancellationToken);
 
         // The verification is itself an audited act, whatever it found.
         await audit.WriteAsync(
@@ -141,7 +141,7 @@ internal sealed partial class AuditVerifier(
         return result;
     }
 
-    public async Task<AuditVerification> VerifyAsync(bool fromLastGoodAnchor, CancellationToken cancellationToken = default)
+    public async Task<AuditVerification> VerifyAsync(bool fromLastGoodAnchor, bool restoredBackup = false, CancellationToken cancellationToken = default)
     {
         await store.EnsureImportedAsync(cancellationToken);
         var head = await store.ReadHeadAsync(cancellationToken);
@@ -161,8 +161,16 @@ internal sealed partial class AuditVerifier(
 
         AuditAnchor? startAnchor = null;
         var checkedAnchors = 0;
+        var newerAnchors = 0;
         foreach (var anchor in anchors.OrderByDescending(a => a.Sequence))
         {
+            // A copy restored from a backup was made before these were written; it cannot answer for them.
+            if (restoredBackup && anchor.Sequence > head.LastSequence)
+            {
+                newerAnchors++;
+                continue;
+            }
+
             checkedAnchors++;
             var mismatch = await AnchorProblemAsync(anchor, cancellationToken);
             if (mismatch is not null)
@@ -229,7 +237,8 @@ internal sealed partial class AuditVerifier(
             sink.IsConfigured,
             from == 0 ? null : from,
             first,
-            time.GetUtcNow());
+            time.GetUtcNow(),
+            newerAnchors);
     }
 
     /// <summary>Whether this entry is what the chain says it should be. Null if it is.</summary>
@@ -352,6 +361,8 @@ internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAudit
                 var total = await entries.LongCountAsync(cancellationToken);
                 var rows = await entries.OrderByDescending(record => record.Sequence).Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
 
+                var (userNames, agencyNames) = await NamesAsync(rows, isAdmin, viewer.AgencyId, cancellationToken);
+
                 result = new AuditPage(
                     [.. rows.Select(record => new AuditEntryView(
                         record.Sequence,
@@ -367,7 +378,9 @@ internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAudit
                         isAdmin ? record.IpAddress : null, // only admins see where people connected from
                         record.Detail,
                         record.BeforeJson,
-                        record.AfterJson))],
+                        record.AfterJson,
+                        record.ActorUserId is { } actor ? userNames.GetValueOrDefault(actor) : null,
+                        NameOfTarget(record, userNames, agencyNames)))],
                     page,
                     size,
                     total);
@@ -392,5 +405,40 @@ internal sealed class AuditReader(AppDbContext db, AuditChainStore store, IAudit
             cancellationToken);
 
         return new AuditReadResult(AuditReadOutcome.Ok, result);
+    }
+
+    private static string? NameOfTarget(AuditLogRecord record, Dictionary<Guid, string> users, Dictionary<Guid, string> agencies) =>
+        Guid.TryParse(record.Subject, out var id)
+            ? record.TargetType switch
+            {
+                "User" => users.GetValueOrDefault(id),
+                "Agency" => agencies.GetValueOrDefault(id),
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
+    /// The names behind the ids on this page. An admin is told all of them. A compliance officer is told the names of people in their own agency and of that agency, and
+    /// nothing about anyone else (an admin who acted, a member of another agency): those are shown by their role only.
+    /// </summary>
+    private async Task<(Dictionary<Guid, string> Users, Dictionary<Guid, string> Agencies)> NamesAsync(IReadOnlyList<AuditLogRecord> rows, bool isAdmin, Guid? viewerAgencyId, CancellationToken cancellationToken)
+    {
+        var ids = rows
+            .SelectMany(record => new[] { record.ActorUserId, Guid.TryParse(record.Subject, out var subject) ? subject : (Guid?)null })
+            .OfType<Guid>()
+            .Distinct()
+            .ToList();
+
+        var users = db.Users.AsNoTracking().Where(user => ids.Contains(user.Id));
+        var agencies = db.Agencies.AsNoTracking().Where(agency => ids.Contains(agency.Id));
+        if (!isAdmin)
+        {
+            users = users.Where(user => user.AgencyId == viewerAgencyId);
+            agencies = agencies.Where(agency => agency.Id == viewerAgencyId);
+        }
+
+        return (
+            await users.ToDictionaryAsync(user => user.Id, user => user.FullName, cancellationToken),
+            await agencies.ToDictionaryAsync(agency => agency.Id, agency => agency.Name, cancellationToken));
     }
 }

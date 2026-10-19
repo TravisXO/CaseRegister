@@ -37,12 +37,17 @@ public sealed class FakeTurnstileVerifier : ITurnstileVerifier
     public const string ValidToken = "valid-turnstile-token";
 
     private readonly ConcurrentQueue<(string? Token, string? RemoteIp)> _calls = new();
+    private readonly ConcurrentQueue<string> _actions = new();
 
     public IReadOnlyCollection<(string? Token, string? RemoteIp)> Calls => _calls;
 
-    public Task<bool> VerifyAsync(string? token, string? remoteIpAddress, CancellationToken cancellationToken = default)
+    /// <summary>The action each call asked for, in order.</summary>
+    public IReadOnlyCollection<string> Actions => _actions;
+
+    public Task<bool> VerifyAsync(string? token, string? remoteIpAddress, string action, CancellationToken cancellationToken = default)
     {
         _calls.Enqueue((token, remoteIpAddress));
+        _actions.Enqueue(action);
 
         return Task.FromResult(token == ValidToken);
     }

@@ -20,12 +20,14 @@ Every secret is an environment variable. None is in `render.yaml` (it asks for e
 | Setting | Where it is set | What it is, and how to make it | If it is lost |
 | --- | --- | --- | --- |
 | `Audit__Keys__k1` | Render | The key that signs the audit chain: 32 random bytes, base64. `New-ProductionKeys.ps1` makes it. | **The audit chain can never be verified again.** Back it up before anything else. |
+| `Pseudonym__Keys__p1` (and `Pseudonym__CurrentKeyId` = `p1`, already in the app's settings) | Render | The key that turns an email address in an audit entry into a keyed hash (HMAC-SHA256) with the key's id, so the log never holds an address or a plain hash of one: 32 random bytes, base64. `New-ProductionKeys.ps1` makes it. Every key ever used stays configured. | Old entries still read; nobody can test any more whether an address appears in them. See `docs/runbooks/key-recovery.md`. |
 | `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` | Render | The certificate that encrypts the data protection keys kept in the database: a base64 PFX and its password. `New-ProductionKeys.ps1` makes both. | The stored keys cannot be read: every session ends and every enrolled authenticator becomes unreadable (everyone would have to set up two-factor again). |
 | `Proxy__Secret` | Render | The secret the proxy sends: 64 random characters. `New-ProductionKeys.ps1` makes it. | Make a new one (see "Rotating the proxy secret"). |
 | `PROXY_SECRET` | Cloudflare Pages (production, as a secret) | The same value as `Proxy__Secret`. | As above. |
 | `ConnectionStrings__Default` | Render | The application's own login, `case_register_app`, on the production database: the direct Neon host (not `-pooler`), `SSL Mode=VerifyFull`, `Maximum Pool Size=10`. Step 1. | Reset the role's password in the SQL editor and set it again. |
 | `ConnectionStrings__Migrations` | **Your machine only**, never Render | The database owner's direct connection string. Used by `migrate`, `seed-admin` and `verify-audit` from your terminal. | Reset the owner's password in the Neon console. |
 | `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey` | Render | The R2 bucket for the audit anchors and an API token that can reach that one bucket. Step 3. | Make a new token; the anchors in the bucket are not affected. |
+| `Turnstile__ExpectedHostname` | Render | The Pages hostname the forms are on, for example `caseregister.pages.dev`. Cloudflare says in its answer which hostname a token was issued for; the API refuses one issued for any other site. The widget on each form also names its own action (`sign-in`, `sign-up`) and a token from one form is refused on the other. | Set it again. |
 | `Turnstile__SecretKey` | Render | Turnstile's secret key for the production site. Step 5. | Rotate it in the Turnstile dashboard. |
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Pages (production; read at build time) | Turnstile's **public** site key. Not a secret: it is built into the page. Never put a secret in a `VITE_` variable. | Copy it from the Turnstile dashboard. |
 | `Deployment__Mode` | Render (already in `render.yaml`) | `Demo`, the only value allowed for now. The API refuses to start with anything else (or with nothing), and the pages show the demo notice because of it. It has no default on purpose. | Set it to `Demo`. |
@@ -82,20 +84,25 @@ On your machine, in PowerShell, from the repository folder:
 
 It writes each secret to its own file in that folder (which must be outside any git repository), prints only the file names and which setting each belongs in, and tells you when the certificate expires. It prints no secret.
 
-1. Copy every file into your password manager. **The audit key and the certificate cannot be made again.**
-2. Write the certificate's **expiry date** (the script prints it; it is five years from the day you made it) in your calendar, two months early. Data protection does not stop working on that date by itself, but a certificate past its date should be replaced, and replacing it needs a small piece of code first (the application reads one certificate; it would need to accept the old one for reading while the new one writes). Do not leave that to the last week.
+1. Copy every file into your password manager. **The audit key, the pseudonymisation key and the certificate cannot be made again.**
+2. Write the certificate's **expiry date** (the script prints it; it is five years from the day you made it) in your calendar, two months early. Replacing it is supported (the old one is kept for reading; see `docs/runbooks/key-recovery.md`), but do not leave it to the last week.
 3. Delete the folder when everything is in the password manager.
 
 ## 3. Cloudflare R2: the audit anchors
 
-Every day the audit chain's latest hash is written to a bucket you control, so someone with only the database cannot rewrite history without it showing.
+Anchors are copies of the audit chain's latest hash, kept in a bucket you control, so someone with only the database cannot rewrite history without it showing.
 
 1. Cloudflare dashboard → **R2** → create a bucket, for example `caseregister-anchors`. Leave it private (no public access, no custom domain).
-2. **Turn on a bucket lock** so anchors cannot be deleted or overwritten: bucket → Settings → **Bucket lock** → add a rule that keeps every object, for example prefix `anchors/` kept **indefinitely**. (The application also refuses to overwrite: it writes each anchor under its own name and tells R2 not to replace an object that exists.) The exact wording on the page may differ from this; the thing you want is "no object can be deleted or changed".
-3. **R2 → Manage API tokens → Create API token**: permission **Object Read & Write**, scoped to **this bucket only** (not "all buckets"). Copy the **Access Key ID** and **Secret Access Key** (shown once) and the account's S3 address, which looks like `https://<account id>.r2.cloudflarestorage.com` (no bucket name, no path). These are `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey` and `Audit__R2__Endpoint`; the bucket name is `Audit__R2__Bucket`.
-4. Put them in your password manager.
+2. **Turn on a bucket lock**: bucket → Settings → **Bucket lock** → add a rule that keeps every object, for example prefix `anchors/` kept **indefinitely**. **This lock is what stops anchors being deleted or overwritten, and it is the only thing that does.** R2 has no write-only permission: any token that can add an object can also replace or delete it, so the application's token, if someone steals it, could erase anchors were the lock not there. (The application also writes each anchor under its own name and tells R2 not to replace an object that exists, but that protects against mistakes, not against a thief.) The exact wording on the page may differ; what you want is "no object can be deleted or changed".
+3. **R2 → Manage API tokens → Create API token** for the application: permission **Object Read & Write**, scoped to **this bucket only** (not "all buckets"). Copy the **Access Key ID** and **Secret Access Key** (shown once) and the account's S3 address, which looks like `https://<account id>.r2.cloudflarestorage.com` (no bucket name, no path). These are `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey` and `Audit__R2__Endpoint` on Render; the bucket name is `Audit__R2__Bucket`.
+4. **A second token for your own machine**: create another token, permission **Object Read only**, scoped to the same bucket. Use this one, and never the application's, when you run `verify-audit` or `verify-keys` from your terminal (it only reads anchors). Then a stolen laptop or a leaked terminal history cannot write to the bucket.
+5. Put all of them in your password manager.
 
-**How the daily anchor happens with no scheduler:** the first audit entry written on each new Zambian day (any sign-in, view or change writes one) first writes an anchor of the chain as it stood, to the bucket. So an anchor is written on every day that anyone uses the site, at that day's first activity, and none on a day when nobody does. If R2 cannot be reached the anchor is logged as failed, the action goes ahead, and the next entry tries again. You can write one by hand any time with `anchor-audit` (below). **Production refuses to start without the bucket settings, and refuses the local-file anchor store.**
+**When anchors are written (there is no scheduler):** after the database has committed, never inside it. An anchor of the chain as it then stands is requested by the first audit entry on each new Zambian day, by the first entry after an hour has passed since the last anchor, immediately after every confirmed proposal, and after every break-glass command. The upload is inline with a 3-second limit; there are no background tasks, because Render can stop the instance at any moment. If the bucket cannot be reached the action that caused it has already happened and goes ahead; an `AnchorDeferred` entry is written to the audit log (once, while the bucket stays down), and the next audit write tries again. You can write one by hand any time with `anchor-audit` (below). **Production refuses to start without the bucket settings, and refuses the local-file anchor store.**
+
+`verify-audit` compares the database with **every** anchor in the bucket and reports the first divergence (the lowest sequence number that disagrees), whether it is a changed entry, a cut-off tail or an anchor that was altered.
+
+Against a database restored from a backup, run `verify-audit --restored-backup`: the copy is older than the newest anchors, so anchors for entries the copy cannot hold are left out and counted (the output says how many); every anchor the copy can answer for is still compared. The nightly backups and the monthly restore check are in [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md).
 
 ## 4. Cloudflare Pages: the front end
 
@@ -120,7 +127,7 @@ Write down the project's address (without `https://`): it is your **Pages hostna
 ## 6. Render: the API
 
 1. Render dashboard → **New → Blueprint** → connect this repository, branch `main`. Render reads `render.yaml`: a Docker web service called `caseregister-api` in **Frankfurt** on the **free** plan, health check `/health/live`, `ASPNETCORE_ENVIRONMENT=Production`, and **auto-deploy only after the CI checks pass**.
-2. Render asks for each setting marked `sync: false`. Give it the values from your password manager (table above): `ConnectionStrings__Default`, `Audit__Keys__k1`, the four `Audit__R2__*`, the two `DataProtection__*`, `Turnstile__SecretKey`, `Proxy__Secret`, and `Invites__SetupPageUrl` = `https://<Pages hostname>/staff/setup`. **Do not** give it `ConnectionStrings__Migrations`.
+2. Render asks for each setting marked `sync: false`. Give it the values from your password manager (table above): `ConnectionStrings__Default`, `Audit__Keys__k1`, `Pseudonym__Keys__p1`, the four `Audit__R2__*`, the two `DataProtection__*`, `Turnstile__SecretKey`, `Proxy__Secret`, and `Invites__SetupPageUrl` = `https://<Pages hostname>/staff/setup`. **Do not** give it `ConnectionStrings__Migrations`.
 3. Apply. The first build takes several minutes. The service gets an address like `https://caseregister-api.onrender.com` (read the real one off the service page): that is the **API origin**.
 4. The service starts and answers `/health/live`, but nothing else works until the database has its tables (step 8).
 
@@ -160,7 +167,9 @@ What each command needs in its environment (set with `$env:Name = Ask 'Name'`):
 | Command | Variables |
 | --- | --- |
 | `migrate` | `ConnectionStrings__Migrations` |
-| `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
+| `seed-admin`, `reset-two-factor`, `suspend-admin`, `anchor-audit`, `verify-audit`, `verify-keys` | `Deployment__Mode` (`Demo`), `ConnectionStrings__Default`, `ConnectionStrings__Migrations`, `Audit__Keys__k1`, `Pseudonym__Keys__p1`, `Audit__R2__Endpoint`, `Audit__R2__Bucket`, `Audit__R2__AccessKeyId`, `Audit__R2__SecretAccessKey`, `DataProtection__CertificateBase64`, `DataProtection__CertificatePassword` |
+
+For `verify-audit` and `verify-keys` put the **read-only** R2 token's key id and secret in `Audit__R2__AccessKeyId` and `Audit__R2__SecretAccessKey` (step 3 of the R2 section); they only read anchors. `anchor-audit` and `seed-admin` and the break-glass commands write audit entries and, through them, anchors, so they need the application's token.
 
 The variables are only in that window. Environment variables beat user-secrets, so the development values are never used while they are set, and each command prints the database host and name before it does anything, so you can see it is the production one.
 
@@ -279,8 +288,7 @@ The order for a release that has a migration (because merging to `main` deploys 
   3. Pages: change `PROXY_SECRET` to the new value. Redeploy the site. Check the smoke test.
   4. Render: set `Proxy__Secret` to the new value and delete `Proxy__NextSecret`. Redeploy.
   5. Update your password manager.
-- **The audit key:** make `k2` with `New-ProductionKeys.ps1 -AuditKeyId k2` (it makes a new certificate too; keep only the key file and discard the rest). On Render add `Audit__Keys__k2`, then set `Audit__CurrentKeyId` = `k2` and `Audit__PreviousKeyId` = `k1`. **The application accepts only the current and the previous key**: an entry signed with an older key is reported as unverifiable. So after a second rotation the entries signed with `k1` stop verifying. Until the verifier is changed to accept every retired key, rotate rarely, keep every retired key for ever, and verify the chain (`verify-audit`) immediately after a rotation.
-- **The data protection certificate:** needs the small code change mentioned in step 2 (accept the old certificate for reading) before it can be replaced. Do that well before it expires.
+- **The audit key, the pseudonymisation key and the data protection certificate:** see `docs/runbooks/key-recovery.md`, which also says where each is escrowed and what happens if one is lost. In short: the application keeps **every** audit key you have ever configured (only the current one signs), so a rotation adds a key and never removes one; an older data protection certificate is kept as `DataProtection__Previous__<n>__...` so the keys it protected stay readable; and `verify-keys` checks it all.
 - **Turnstile secret:** rotate in the Turnstile dashboard, then set `Turnstile__SecretKey` on Render.
 - **The R2 token:** create a new token for the bucket, set the three `Audit__R2__*` values on Render, check the next audit write succeeds, then delete the old token.
 - **The application's database password:** `ALTER ROLE case_register_app PASSWORD '<new>';` in the SQL editor, then update `ConnectionStrings__Default` on Render.
@@ -334,3 +342,8 @@ After a `suspend-admin` that leaves fewer than two admins, use `seed-admin` (it 
 | Render will not start | Read the log: the message names the missing or wrong setting, never its value. |
 | Everyone is signed out after a deploy | The data protection certificate or its password changed. Put the original back. |
 | **Verify chain** says an anchor is unreadable | R2 could not be reached, or the token is wrong. Anchors already in the bucket are safe. |
+
+## Health checks: what to point at, and what not to
+
+- **`/health/live`** answers "the process is running" and nothing else: it never opens a database connection (a test proves it), so the platform can call it as often as it likes. Render's health check is set to it in `render.yaml`. Uptime monitors, if you add one, should use this one too.
+- **`/health/ready`** asks the database a question. **Do not ping it on a schedule** (not from an uptime monitor, not from a cron job, not from the Pages site): every call that is not already answered from its five-second cache connects to Neon, and a regular ping keeps the compute awake all day, which uses up the free plan's compute hours and defeats the point of Neon suspending itself when nobody is using the system. Use it by hand when you are checking a deployment, and in the smoke test.

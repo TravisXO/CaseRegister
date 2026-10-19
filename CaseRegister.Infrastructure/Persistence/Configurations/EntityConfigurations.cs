@@ -88,6 +88,8 @@ internal sealed class AuditChainHeadConfiguration : IEntityTypeConfiguration<Aud
         builder.Property(head => head.Id).ValueGeneratedNever();
         builder.Property(head => head.LastHash).HasMaxLength(64).IsRequired();
         builder.Property(head => head.LastAnchorDate).HasColumnType("date");
+        builder.Property(head => head.LastAnchorAt).HasColumnType("timestamp with time zone");
+        builder.Property(head => head.AnchorDeferred).HasDefaultValue(false);
 
         // The one row, there from the start: no hash yet, and nothing imported.
         builder.HasData(new AuditChainHead { Id = AuditChainHead.OnlyId, LastSequence = 0, LastHash = new string('0', 64), LegacyImported = false });
@@ -178,19 +180,6 @@ internal sealed class UserSessionConfiguration : IEntityTypeConfiguration<UserSe
         builder.Property(session => session.Ticket).IsRequired();
         builder.Property(session => session.IpAddress).HasMaxLength(45);
         builder.Property(session => session.UserAgent).HasMaxLength(200);
-    }
-}
-
-internal sealed class LockoutEventConfiguration : IEntityTypeConfiguration<LockoutEvent>
-{
-    public void Configure(EntityTypeBuilder<LockoutEvent> builder)
-    {
-        builder.ToTable("lockout_events");
-
-        // Nothing is hard-deleted, so an account with history cannot be removed from under it.
-        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
-
-        builder.HasIndex(e => new { e.UserId, e.CreatedAt });
     }
 }
 

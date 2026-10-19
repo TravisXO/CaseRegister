@@ -5771,7 +5771,9 @@
           "ipAddress",
           "detail",
           "before",
-          "after"
+          "after",
+          "actorName",
+          "targetName"
         ],
         "type": "object",
         "properties": {
@@ -5848,6 +5850,14 @@
                 "$ref": "#/components/schemas/JsonElement"
               }
             ]
+          },
+          "actorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "targetName": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -5932,6 +5942,11 @@
           "verifiedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "newerAnchors": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -6210,7 +6225,8 @@
           "decidedByUserId",
           "decidedAt",
           "decisionReason",
-          "lastRefusal"
+          "lastRefusal",
+          "decidedByName"
         ],
         "type": "object",
         "properties": {
@@ -6276,6 +6292,10 @@
                 "$ref": "#/components/schemas/ProposalRefusal"
               }
             ]
+          },
+          "decidedByName": {
+            "type": "string",
+            "nullable": true
           },
           "setupLink": {
             "type": "string",

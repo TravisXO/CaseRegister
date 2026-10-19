@@ -68,6 +68,12 @@ public sealed class AuditChainHead
     /// <summary>The Zambian date of the last anchor written.</summary>
     public DateOnly? LastAnchorDate { get; set; }
 
+    /// <summary>When the last anchor was stored. An hour after this, the next audit entry asks for another.</summary>
+    public DateTimeOffset? LastAnchorAt { get; set; }
+
+    /// <summary>The last anchor could not be stored (the anchor store was down). The next audit write tries again.</summary>
+    public bool AnchorDeferred { get; set; }
+
     /// <summary>Whether the rows from before the chain existed have been brought into it.</summary>
     public bool LegacyImported { get; set; }
 }

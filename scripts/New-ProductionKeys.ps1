@@ -8,6 +8,7 @@
   by accident.
 
     audit-key-<id>.txt                          -> Audit__Keys__<id>               (base64, 32 random bytes)
+    pseudonym-key-<id>.txt                      -> Pseudonym__Keys__<id>           (base64, 32 random bytes)
     data-protection-certificate-base64.txt      -> DataProtection__CertificateBase64
     data-protection-certificate-password.txt    -> DataProtection__CertificatePassword
     proxy-secret.txt                            -> Proxy__Secret   (also set as PROXY_SECRET in Cloudflare Pages)
@@ -26,6 +27,9 @@
 .PARAMETER AuditKeyId
   The id of the audit key (default k1). Use k2, k3 ... when you rotate: the id is part of the setting name and is stored with every audit entry.
 
+.PARAMETER PseudonymKeyId
+  The id of the pseudonymisation key (default p1). Use p2, p3 ... when you rotate; every old key stays configured.
+
 .PARAMETER ProxySecretOnly
   Make only a new proxy secret, for a rotation (it goes in Proxy__NextSecret first; see docs/deployment.md).
 
@@ -41,6 +45,9 @@ param(
 
     [ValidatePattern('^[A-Za-z0-9]{1,16}$')]
     [string]$AuditKeyId = 'k1',
+
+    [ValidatePattern('^[A-Za-z0-9]{1,16}$')]
+    [string]$PseudonymKeyId = 'p1',
 
     [switch]$ProxySecretOnly,
 
@@ -94,6 +101,9 @@ if (-not $ProxySecretOnly) {
     Write-SecretFile "audit-key-$AuditKeyId.txt" ([Convert]::ToBase64String((New-RandomBytes 32)))
     $made += [pscustomobject]@{ File = "audit-key-$AuditKeyId.txt"; Setting = "Audit__Keys__$AuditKeyId (and Audit__CurrentKeyId=$AuditKeyId). LOSE THIS AND THE AUDIT CHAIN CAN NEVER BE VERIFIED." }
 
+    Write-SecretFile "pseudonym-key-$PseudonymKeyId.txt" ([Convert]::ToBase64String((New-RandomBytes 32)))
+    $made += [pscustomobject]@{ File = "pseudonym-key-$PseudonymKeyId.txt"; Setting = "Pseudonym__Keys__$PseudonymKeyId (and Pseudonym__CurrentKeyId=$PseudonymKeyId). Keep every old pseudonymisation key too." }
+
     $rsa = [System.Security.Cryptography.RSA]::Create(3072)
     $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
         'CN=CaseRegister Production Data Protection',
@@ -113,7 +123,7 @@ if (-not $ProxySecretOnly) {
     $made += [pscustomobject]@{ File = 'data-protection-certificate-password.txt'; Setting = 'DataProtection__CertificatePassword' }
     $made += [pscustomobject]@{ File = 'data-protection-certificate.pfx'; Setting = '(the same certificate as a file, for your backup)' }
     $notes += "The data protection certificate expires on $expiry. Put a reminder in your calendar for two months before that date."
-    $notes += 'Replacing it needs a small code change first (the application reads one certificate): see docs/deployment.md.'
+    $notes += 'To replace it later, keep the old one as DataProtection__Previous__<n> (see docs/runbooks/key-recovery.md).'
 }
 
 [System.IO.File]::WriteAllText((Join-Path $target 'NOTES.txt'), ($notes -join "`r`n"), (New-Object System.Text.UTF8Encoding($false)))

@@ -75,7 +75,7 @@ export function SignInPage() {
       <form onSubmit={onSubmit} noValidate>
         <TextField id="email" label="Email address" type="email" autoComplete="username" value={email} onChange={(event) => { setEmail(event.target.value); }} error={errorFor(problems.problems, "email")} />
         <PasswordField id="password" label="Password" autoComplete="current-password" value={password} onChange={(event) => { setPassword(event.target.value); }} error={errorFor(problems.problems, "password")} />
-        <Turnstile ref={turnstile} onToken={setToken} />
+        <Turnstile action="sign-in" ref={turnstile} onToken={setToken} />
         {errorFor(problems.problems, "turnstile") === undefined ? null : <p className="field-error mb-4">{errorFor(problems.problems, "turnstile")}</p>}
         <SubmitButton pending={submit.pending}>Sign in</SubmitButton>
       </form>

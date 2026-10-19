@@ -6,7 +6,11 @@ This walks through the flow in a browser, from an empty database: two admins, an
 
 - the .NET 10 SDK, Node 24 and npm
 - an authenticator app on your phone (any app that makes 6-digit codes)
-- the API's user-secrets already set (the database, the data-protection certificate and the audit key; see the notes in `CaseRegister.Api` and `database/app-role-grants.sql`)
+- the API's user-secrets already set (the database, the data-protection certificate and the audit key; see the notes in `CaseRegister.Api` and `database/app-role-grants.sql`) and, since the audit log stopped storing plain hashes of email addresses, a pseudonymisation key:
+  ```powershell
+  dotnet user-secrets set "Pseudonym:Keys:p1" ([Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))) --project CaseRegister.Api
+  ```
+  (`Pseudonym:CurrentKeyId` is `p1` already. The API will not start without the key.)
 
 ## 1. An empty database
 

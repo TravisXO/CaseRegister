@@ -31,6 +31,10 @@ services:
       # The audit chain's signing key (base64, 32 bytes) and the R2 bucket the daily anchors are written to.
       - key: Audit__Keys__k1
         sync: false
+      # The separate key that pseudonymises email addresses in audit entries (docs/runbooks/key-recovery.md). Every key ever used stays.
+      - key: Pseudonym__Keys__p1
+        sync: false
+
       - key: Audit__R2__Endpoint
         sync: false
       - key: Audit__R2__Bucket
@@ -48,6 +52,10 @@ services:
 
       # Cloudflare Turnstile's secret key for the production site key.
       - key: Turnstile__SecretKey
+        sync: false
+
+      # The Pages hostname the forms are on. Cloudflare says which site a token was issued for; one issued for any other is refused.
+      - key: Turnstile__ExpectedHostname
         sync: false
 
       # The only mode there is for now: all data is fake. The API refuses to start with anything else, so no real personal data is used

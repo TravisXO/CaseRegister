@@ -264,6 +264,8 @@ Generated_Code/
 # because we have git ;-)
 _UpgradeReport_Files/
 Backup*/
+# ...but not this project's backup/ folder (the public keys the nightly backup is encrypted to).
+!/backup/
 UpgradeLog*.XML
 UpgradeLog*.htm
 ServiceFabricBackup/

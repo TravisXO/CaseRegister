@@ -61,8 +61,8 @@ public static class ActionPayloads
 
         return type switch
         {
-            PendingActionType.AssignRole => $"Give {who} the {Role(payload).Role} role",
-            PendingActionType.RemoveRole => $"Take the {Role(payload).Role} role away from {who}",
+            PendingActionType.AssignRole => $"Give {who} the {RoleLabels.For(Role(payload).Role)} role",
+            PendingActionType.RemoveRole => $"Take the {RoleLabels.For(Role(payload).Role)} role away from {who}",
             PendingActionType.VerifyPractisingCertificate => $"Verify a practising certificate of {who}",
             PendingActionType.ReactivateUser => $"Reactivate the suspended account of {who}",
             PendingActionType.ReactivateAgency => $"Reactivate the suspended agency {who}",
@@ -100,7 +100,7 @@ public static class ActionPayloads
     {
         var invite = Invite(payload);
 
-        return $"Invite {invite.FullName} ({invite.Email}) as {invite.Role}. They set a password and two-factor from a link that lasts 24 hours";
+        return $"Invite {invite.FullName} ({invite.Email}) as {RoleLabels.For(invite.Role)}. They set a password and two-factor from a link that lasts 24 hours";
     }
 
     private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, _options);

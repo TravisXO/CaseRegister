@@ -11,6 +11,9 @@
  *    coordinates that request.cf also holds are never touched.
  *  - Set-Cookie comes back untouched, so the __Host- cookies work.
  *  - The body is capped, the call has a timeout, and no body, cookie or secret is ever logged. (There is no logging here at all.)
+ *  - When the API is asleep or starting (Render's free plan stops it when idle and takes about a minute to wake): a timeout, a connection
+ *    that fails, a 502, 503 or 504, or an answer that is not JSON (an error page from Render's own front door) all become the same
+ *    503 problem, "The server is starting up", with Retry-After: 30. The page shows it as a status message and asks again once, for reads only.
  *  - It answers only on the production hostname, so a preview deployment of this site cannot reach the production API.
  *
  * Settings (Cloudflare Pages, Production environment only): API_ORIGIN, PROXY_SECRET, PRODUCTION_HOSTNAME; UPSTREAM_TIMEOUT_MS is optional.
@@ -50,11 +53,26 @@ const REQUEST_HEADERS_FORWARDED = ["accept", "accept-language", "content-type", 
 /** Headers that describe one connection, not the answer. */
 const RESPONSE_HEADERS_DROPPED = ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "server", "x-powered-by"];
 
-function problem(status: number, title: string): Response {
+/** What a page looks for to know the server is on its way up, rather than that something is wrong. */
+export const STARTING_UP_TITLE = "The server is starting up";
+export const STARTING_UP_RETRY_AFTER_SECONDS = 30;
+
+function problem(status: number, title: string, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify({ title, status }), {
     status,
-    headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" },
+    headers: { "Content-Type": "application/problem+json", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", ...extraHeaders },
   });
+}
+
+function startingUp(): Response {
+  return problem(503, STARTING_UP_TITLE, { "Retry-After": String(STARTING_UP_RETRY_AFTER_SECONDS) });
+}
+
+/** True for an answer that did not come from the API: it has a content type, and it is not JSON (an HTML error page from the host in front of it). Empty answers have none. */
+function isNotFromTheApi(answer: Response): boolean {
+  const type = (answer.headers.get("content-type") ?? "").toLowerCase();
+
+  return type !== "" && !/\bjson\b/.test(type);
 }
 
 /** What Cloudflare knows about where a request came from. Only the two fields below are ever read. */
@@ -198,9 +216,17 @@ export async function handle(request: Request, env: ProxyEnv): Promise<Response>
   let upstream: Response;
   try {
     upstream = await fetch(target, { method, headers, body, redirect: "manual", signal: AbortSignal.timeout(timeoutFrom(env)) });
-  } catch (error) {
-    // Nothing about the failure is passed on, and nothing is logged: the request held cookies and perhaps a body.
-    return error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError") ? problem(504, "The API took too long to answer") : problem(502, "The API could not be reached");
+  } catch {
+    // Nothing about the failure is passed on, and nothing is logged: the request held cookies and perhaps a body. A timeout and a connection that
+    // cannot be made look the same from outside: the API is asleep or waking.
+    return startingUp();
+  }
+
+  // The host in front of the API answers 502, 503 or 504 while it wakes, and with a page of its own. Neither is passed on.
+  if (upstream.status === 502 || upstream.status === 503 || upstream.status === 504 || isNotFromTheApi(upstream)) {
+    await upstream.body?.cancel();
+
+    return startingUp();
   }
 
   // Headers are copied as they are, so every Set-Cookie (there can be several) arrives exactly as the API wrote it.

@@ -376,8 +376,8 @@ public class AuditOptionsTests
 {
     private static string Key(int length = 32) => Convert.ToBase64String(new byte[length]);
 
-    private static AuditOptions Options(string current = "k1", string? previous = null, params (string Id, string Value)[] keys) =>
-        new() { CurrentKeyId = current, PreviousKeyId = previous, Keys = keys.ToDictionary(pair => pair.Id, pair => pair.Value) };
+    private static AuditOptions Options(string current = "k1", string? unused = null, params (string Id, string Value)[] keys) =>
+        new() { CurrentKeyId = current, Keys = keys.ToDictionary(pair => pair.Id, pair => pair.Value) };
 
     [Fact]
     public void A_current_key_of_at_least_32_bytes_is_enough()
@@ -409,9 +409,16 @@ public class AuditOptionsTests
     }
 
     [Fact]
-    public void A_previous_key_that_is_named_must_be_there_and_must_differ()
+    public void Every_configured_key_has_to_be_usable_even_a_retired_one()
     {
-        Assert.Contains("Audit:Keys:k0", Options("k1", "k0", ("k1", Key())).Problem(), StringComparison.Ordinal);
-        Assert.Contains("differ", Options("k1", "k1", ("k1", Key())).Problem(), StringComparison.Ordinal);
+        Assert.Contains("Audit:Keys:k0", Options("k1", null, ("k1", Key()), ("k0", Key(8))).Problem(), StringComparison.Ordinal);
+        Assert.Contains("Audit:Keys:k0", Options("k1", null, ("k1", Key()), ("k0", "not base64!")).Problem(), StringComparison.Ordinal);
+        Assert.Contains("Audit:Keys:k0", Options("k1", null, ("k1", Key()), ("k0", " ")).Problem(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Any_number_of_retired_keys_may_be_kept()
+    {
+        Assert.Null(Options("k4", null, ("k1", Key()), ("k2", Key()), ("k3", Key()), ("k4", Key())).Problem());
     }
 }
