@@ -146,6 +146,7 @@ public sealed class StartupConfigurationTests : IDisposable
     [InlineData("Audit:Keys:k1")]
     [InlineData("Proxy:Secret")]
     [InlineData("Turnstile:ExpectedHostname")]
+    [InlineData("Passkeys:RelyingPartyId")]
     [InlineData("Pseudonym:Keys:p1")]
     [InlineData("Audit:R2:Endpoint")]
     [InlineData("Audit:R2:Bucket")]

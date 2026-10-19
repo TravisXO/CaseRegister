@@ -37,6 +37,13 @@ public sealed class NotificationTests(PostgresFixture postgres)
         var factory = await ApiFactory.CreateAsync(postgres, configureServices: configureServices);
         var agency = await factory.CreateAgencyAsync();
         var admins = await factory.CreateAdminsAsync(3);
+
+        // These admins already have a passkey, so the weekly nudge to add one (tested in PasskeyTests) does not get into the counts here.
+        foreach (var admin in admins)
+        {
+            await factory.AddPasskeyRowAsync(admin);
+        }
+
         var member = await factory.CreateMemberAsync("member@example.test", agency, [Role.RegisteredAgent]);
         var staff = await factory.CreateUserAsync("staff@example.test", staff: true);
 

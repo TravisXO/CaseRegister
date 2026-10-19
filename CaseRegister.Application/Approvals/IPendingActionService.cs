@@ -32,7 +32,12 @@ public sealed record ProposeActionCommand(
 
 /// <param name="PayloadHash">The hash of the proposal as the confirmer saw it. If the proposal is not that, it is refused.</param>
 /// <param name="TwoFactorCode">A fresh authenticator code (or a recovery code) from the confirmer: a signed-in session is not enough.</param>
-public sealed record ConfirmActionCommand(string PayloadHash, string TwoFactorCode);
+/// <param name="PasskeyAssertion">Or a passkey answer (JSON) that verified the user, instead of the code.</param>
+public sealed record ConfirmActionCommand(string PayloadHash, string? TwoFactorCode = null, string? PasskeyAssertion = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Auth.StepUp StepUp => new(TwoFactorCode, PasskeyAssertion);
+}
 
 /// <summary>Why a proposal is being rejected or withdrawn.</summary>
 public sealed record DecisionReasonCommand(string Reason);

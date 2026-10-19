@@ -62,6 +62,12 @@ public enum AuditAction
     PasswordCheckFallbackUsed,
     BreakGlassUsed,
     BreakGlassRefused,
+
+    // Passkeys. Never the credential or its key, only that one was added, renamed or removed (and which, by its position in the person's list).
+    PasskeyAdded,
+    PasskeyRenamed,
+    PasskeyRemoved,
+    PasskeyRejected,
 }
 
 /// <param name="Action">What happened.</param>

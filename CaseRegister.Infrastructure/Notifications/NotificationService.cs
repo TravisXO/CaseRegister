@@ -301,6 +301,13 @@ internal sealed class TimeBasedNotifications(AppDbContext db, TimeProvider time)
             due.AddRange(expiring.Select(action => NotificationFactory.ProposalExpiring(userId, action.Id, action.Type)));
         }
 
+        // An admin without a passkey is asked to add one, each week until they have. Never a requirement: an older device may not have one.
+        if (PermissionMatrix.IsAllowed(Capability.ProposeAdminActions, roles) && !await db.Set<Microsoft.AspNetCore.Identity.IdentityUserPasskey<Guid>>().AnyAsync(passkey => passkey.UserId == userId, cancellationToken))
+        {
+            var week = System.Globalization.ISOWeek.GetWeekOfYear(today.ToDateTime(TimeOnly.MinValue));
+            due.Add(NotificationFactory.PasskeyAdvice(userId, $"{System.Globalization.ISOWeek.GetYear(today.ToDateTime(TimeOnly.MinValue))}-W{week:00}"));
+        }
+
         // An agent's certificate: about to expire with nothing to follow it, or lapsed.
         if (roles.Any(role => role.IsAgentRole()))
         {

@@ -216,6 +216,22 @@ public static class NotificationFactory
         $"Someone entered your correct password{Place(place)} and then a wrong two-factor code. Was this you? If not, your password may be known: change it.",
         "/profile", Key(NotificationType.SecurityWrongSecondFactor, recipientId, eventId.ToString("N")));
 
+    public static NewNotification PasskeyAdded(Guid recipientId, Guid eventId, ClientLocation? place) => new(
+        recipientId, NotificationType.SecurityPasskeyAdded, NotificationSeverity.Warning,
+        $"A passkey was added to your account{Place(place)}. Was this you? If not, remove it on your profile, change your password and tell an admin at once.",
+        "/profile", Key(NotificationType.SecurityPasskeyAdded, recipientId, eventId.ToString("N")));
+
+    public static NewNotification PasskeyRemoved(Guid recipientId, Guid eventId, ClientLocation? place) => new(
+        recipientId, NotificationType.SecurityPasskeyRemoved, NotificationSeverity.Warning,
+        $"A passkey was removed from your account{Place(place)}, and your other sessions were ended. Was this you? If not, tell an admin at once.",
+        "/profile", Key(NotificationType.SecurityPasskeyRemoved, recipientId, eventId.ToString("N")));
+
+    /// <summary>Asks an admin to add a passkey. It comes back each week (a new window) until they have one; it never blocks anyone.</summary>
+    public static NewNotification PasskeyAdvice(Guid recipientId, string week) => new(
+        recipientId, NotificationType.PasskeyAdvice, NotificationSeverity.Info,
+        "Add a passkey to your account for a sign-in that cannot be phished. Your authenticator app keeps working either way.",
+        "/profile", Key(NotificationType.PasskeyAdvice, recipientId, "advice", week));
+
     private static string Duration(TimeSpan duration) =>
         duration.TotalHours >= 1
             ? $"{duration.TotalHours.ToString("0.#", CultureInfo.InvariantCulture)} hour{(duration.TotalHours >= 2 ? "s" : string.Empty)}"

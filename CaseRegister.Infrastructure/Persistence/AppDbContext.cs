@@ -112,6 +112,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<IdentityUserLogin<Guid>>().ToTable("user_logins");
         builder.Entity<IdentityUserToken<Guid>>().ToTable("user_tokens");
 
+        // Passkeys (Identity's own table shape). Mapped here, not left to the Identity schema-version option, so that the migrator and the
+        // design-time factory, which have no application services to read that option from, build the same model as the application does.
+        builder.Entity<IdentityUserPasskey<Guid>>(passkey =>
+        {
+            passkey.ToTable("user_passkeys");
+            passkey.HasKey(item => item.CredentialId);
+            passkey.Property(item => item.CredentialId).HasMaxLength(1024);
+            passkey.HasIndex(item => item.UserId);
+            passkey.HasOne<ApplicationUser>().WithMany().HasForeignKey(item => item.UserId).IsRequired().OnDelete(DeleteBehavior.Restrict);
+            passkey.OwnsOne(item => item.Data, data => data.ToJson());
+        });
+
         // The roles are data in the migration, not something the running application creates.
         builder.Entity<IdentityRole<Guid>>().HasData(
             Enum.GetValues<Role>().Select(role => new IdentityRole<Guid>

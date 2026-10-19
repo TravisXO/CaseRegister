@@ -66,7 +66,7 @@ public static class ActionPayloads
             PendingActionType.VerifyPractisingCertificate => $"Verify a practising certificate of {who}",
             PendingActionType.ReactivateUser => $"Reactivate the suspended account of {who}",
             PendingActionType.ReactivateAgency => $"Reactivate the suspended agency {who}",
-            PendingActionType.ResetTwoFactor => $"Reset two-factor for {who}: remove the authenticator and recovery codes, end all sessions, and make a one-time code they need to set it up again",
+            PendingActionType.ResetTwoFactor => $"Reset two-factor for {who}: remove the authenticator, recovery codes and passkeys, end all sessions, and make a one-time code they need to set it up again",
             PendingActionType.SuspendUser => $"Suspend the account of {who} and end all sessions",
             PendingActionType.EndSessions => $"End all sessions of {who}",
             PendingActionType.SuspendAgency => $"Suspend the agency {who}",
@@ -181,7 +181,7 @@ public sealed class ConfirmActionCommandValidator : AbstractValidator<ConfirmAct
     public ConfirmActionCommandValidator()
     {
         RuleFor(command => command.PayloadHash).NotEmpty().MaximumLength(HashLength);
-        RuleFor(command => command.TwoFactorCode).NotEmpty().MaximumLength(Auth.TwoFactorCodeRules.MaxLength);
+        Auth.StepUpRules.Require(this, command => command.TwoFactorCode, command => command.PasskeyAssertion);
     }
 }
 

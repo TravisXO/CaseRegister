@@ -58,6 +58,10 @@ services:
       - key: Turnstile__ExpectedHostname
         sync: false
 
+      # The hostname the browser sees (the Pages hostname, never this service's onrender.com one). Passkeys belong to it; the API refuses to start without it.
+      - key: Passkeys__RelyingPartyId
+        sync: false
+
       # The only mode there is for now: all data is fake. The API refuses to start with anything else, so no real personal data is used
       # before a decision has been made about where in Zambia it is hosted.
       - key: Deployment__Mode

@@ -100,6 +100,37 @@ public static class DependencyInjection
             .ValidateOnStart();
     }
 
+    private static void AddPasskeys(IServiceCollection services)
+    {
+        // Where passkeys are valid: the hostname the browser sees. Startup fails without it (and in production without the right kind of it).
+        services.AddSingleton<IValidateOptions<PasskeyOptions>, PasskeyOptionsValidator>();
+        services.AddOptions<PasskeyOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+            {
+                var section = configuration.GetSection(PasskeyOptions.SectionName);
+                options.RelyingPartyId = section["RelyingPartyId"] ?? string.Empty;
+                options.Origins = [.. section.GetSection("Origins").GetChildren().Select(origin => origin.Value ?? string.Empty).Where(origin => origin.Length > 0)];
+            })
+            .ValidateOnStart();
+
+        // Identity's own handler does the WebAuthn checking. A passkey must verify the user (a PIN, a fingerprint, a face): one without that is
+        // refused, and it must be discoverable so that signing in does not start by naming an account.
+        services.AddOptions<IdentityPasskeyOptions>()
+            .Configure<IOptions<PasskeyOptions>>((options, passkeys) =>
+            {
+                var origins = passkeys.Value.EffectiveOrigins;
+                options.ServerDomain = passkeys.Value.RelyingPartyId.Trim();
+                options.UserVerificationRequirement = "required";
+                options.ResidentKeyRequirement = "required";
+                options.AttestationConveyancePreference = "none";
+                options.ValidateOrigin = context => ValueTask.FromResult(!context.CrossOrigin && origins.Contains(context.Origin, StringComparer.Ordinal));
+            });
+        services.TryAddScoped<IPasskeyHandler<ApplicationUser>, PasskeyHandler<ApplicationUser>>();
+        services.AddScoped<PasskeyCeremonies>();
+        services.AddScoped<IPasskeyService, PasskeyService>();
+        services.AddScoped<IStepUpVerifier, StepUpVerifier>();
+    }
+
     private static void AddAccountSecurity(IServiceCollection services)
     {
         // These must be registered before AddIdentityCore, which only adds its own defaults when nothing is there.
@@ -164,6 +195,8 @@ public static class DependencyInjection
         services.AddScoped<CredentialChecker>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<ISessionService, SessionService>();
+
+        AddPasskeys(services);
 
         // Roles, certificates and the member profile.
         services.AddScoped<RoleAssignmentService>();
@@ -376,6 +409,12 @@ internal sealed class TurnstileOptionsValidator(Microsoft.Extensions.Hosting.IHo
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail($"{TurnstileOptions.RequireActionKey} must not be turned off in Production: it is what stops a token from one form being used on another.");
     }
+}
+
+internal sealed class PasskeyOptionsValidator(Microsoft.Extensions.Hosting.IHostEnvironment environment) : IValidateOptions<PasskeyOptions>
+{
+    public ValidateOptionsResult Validate(string? name, PasskeyOptions options) =>
+        options.Problem(environment.IsProduction()) is { } problem ? ValidateOptionsResult.Fail(problem) : ValidateOptionsResult.Success;
 }
 
 internal sealed class PseudonymOptionsValidator : IValidateOptions<PseudonymOptions>

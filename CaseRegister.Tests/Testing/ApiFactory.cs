@@ -33,6 +33,10 @@ namespace CaseRegister.Tests.Testing;
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public const string TurnstileTestSecret = "1x0000000000000000000000000000000AA";
+
+    /// <summary>The hostname passkeys are made for in the tests, and the origin the virtual authenticator reports.</summary>
+    public const string PasskeyRelyingPartyId = "app.example.test";
+    public const string PasskeyOrigin = "https://app.example.test";
     public const string Password = "correct horse battery staple";
     public const string TestKeyId = "k1";
     public const string SecondKeyId = "k2";
@@ -81,6 +85,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
             // Cloudflare's published test secret: it accepts every token. The verifier itself is replaced below.
             ["Turnstile:SecretKey"] = TurnstileTestSecret,
+            ["Passkeys:RelyingPartyId"] = PasskeyRelyingPartyId,
+            ["Passkeys:Origins:0"] = PasskeyOrigin,
 
             // The only deployment mode there is.
             ["Deployment:Mode"] = "Demo",
@@ -389,6 +395,21 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         await db.SaveChangesAsync();
 
         _twoFactorKeys[user.Id] = key;
+    }
+
+    /// <summary>Puts a passkey row in the database for an account, without a ceremony, for tests that only need there to be one.</summary>
+    public async Task AddPasskeyRowAsync(ApplicationUser user)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        db.Set<Microsoft.AspNetCore.Identity.IdentityUserPasskey<Guid>>().Add(new()
+        {
+            UserId = user.Id,
+            CredentialId = RandomNumberGenerator.GetBytes(32),
+            Data = new Microsoft.AspNetCore.Identity.IdentityPasskeyData { PublicKey = RandomNumberGenerator.GetBytes(77), Name = "Test passkey", CreatedAt = Clock.GetUtcNow(), IsUserVerified = true, Transports = [], AttestationObject = [], ClientDataJson = [] },
+        });
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Remembers a key the app generated (for example during enrolment), so codes can be made for it.</summary>
