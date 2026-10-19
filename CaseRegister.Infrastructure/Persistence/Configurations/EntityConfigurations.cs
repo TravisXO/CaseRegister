@@ -38,6 +38,10 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
         // Readable in the database, and robust if the enum is ever reordered.
         builder.Property(user => user.AccountStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
 
+        // When the records may be removed, and a hold that stops that. Nothing is removed yet: this only records the date (see RetentionPolicy).
+        builder.Property(user => user.RetainUntil).HasColumnType("timestamp with time zone");
+        builder.Property(user => user.LegalHold).HasDefaultValue(false);
+
         // Identity checks email uniqueness in code; this makes the database enforce it as well.
         builder.HasIndex(user => user.NormalizedEmail).IsUnique().HasDatabaseName("ux_users_normalized_email");
     }
@@ -191,6 +195,8 @@ internal sealed class AgencyConfiguration : IEntityTypeConfiguration<Agency>
 
         builder.Property(agency => agency.Name).HasMaxLength(Agency.MaxNameLength).IsRequired();
         builder.Property(agency => agency.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+        builder.Property(agency => agency.RetainUntil).HasColumnType("timestamp with time zone");
+        builder.Property(agency => agency.LegalHold).HasDefaultValue(false);
     }
 }
 

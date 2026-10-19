@@ -277,6 +277,7 @@ describe("every page", () => {
     unmount();
 
     signedInAs(admin);
+    server.use(http.get("/api/auth/sessions", () => HttpResponse.json([]))); // the page asks for its list while the screen is checked
     renderApp("/sessions");
     expect(await screen.findByText("Demo: all data is fake.")).toBeInTheDocument();
   });

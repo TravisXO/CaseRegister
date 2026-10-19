@@ -15,6 +15,8 @@ interface Screen {
 const screens: Screen[] = [
   { name: "sign in", path: "/sign-in", who: "nobody", heading: "Sign in" },
   { name: "sign up", path: "/sign-up", who: "nobody", heading: /apply|join|sign up/i },
+  { name: "privacy notice", path: "/privacy", who: "nobody", heading: "Privacy notice" },
+  { name: "terms of use", path: "/terms", who: "nobody", heading: "Terms of use" },
   { name: "code step", path: "/sign-in/code", who: "nobody", heading: /code|verify|second/i },
   { name: "enrolment code", path: "/sign-in/enrolment-code", who: "nobody", heading: /code/i },
   { name: "staff setup", path: "/staff/setup", who: "nobody", heading: /set up|setup|staff/i },

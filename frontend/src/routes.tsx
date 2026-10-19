@@ -12,6 +12,7 @@ import { ProposalPage, ProposalsPage } from "./pages/admin/ProposalsPage";
 import { EnrolmentCodePage } from "./pages/EnrolmentCodePage";
 import { EnrolPage } from "./pages/EnrolPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { NotificationsProvider } from "./notifications/notifications";
 import { ProfilePage } from "./pages/ProfilePage";
@@ -19,6 +20,7 @@ import { SessionsPage } from "./pages/SessionsPage";
 import { SignInPage } from "./pages/SignInPage";
 import { SignUpPage } from "./pages/SignUpPage";
 import { StaffSetupPage } from "./pages/StaffSetupPage";
+import { TermsPage } from "./pages/TermsPage";
 import { TwoFactorCodePage } from "./pages/TwoFactorCodePage";
 
 function Home() {
@@ -54,6 +56,8 @@ export const routes: RouteObject[] = [
           { path: "sign-in/code", element: <TwoFactorCodePage /> },
           { path: "sign-in/enrolment-code", element: <EnrolmentCodePage /> },
           { path: "sign-up", element: <SignUpPage /> },
+          { path: "privacy", element: <PrivacyPage /> },
+          { path: "terms", element: <TermsPage /> },
           { path: "staff/setup", element: <StaffSetupPage /> },
           { path: "two-factor/set-up", element: <EnrolPage /> },
           {

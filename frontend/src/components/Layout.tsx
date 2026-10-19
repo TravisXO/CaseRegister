@@ -154,7 +154,17 @@ export function Layout() {
         ) : null}
         <Outlet />
       </main>
-      <footer className="border-t border-slate-300 bg-white px-4 py-4 text-center text-sm text-slate-700 print:hidden">Independent concept, not affiliated with ZIEA</footer>
+      <footer className="border-t border-slate-300 bg-white px-4 py-4 text-center text-sm text-slate-700 print:hidden">
+        <nav aria-label="About this site" className="mb-2 flex flex-wrap justify-center gap-x-6 gap-y-1">
+          <Link to="/privacy" className="link">
+            Privacy
+          </Link>
+          <Link to="/terms" className="link">
+            Terms
+          </Link>
+        </nav>
+        Independent concept, not affiliated with ZIEA
+      </footer>
     </div>
   );
 }

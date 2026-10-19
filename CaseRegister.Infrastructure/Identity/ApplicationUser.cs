@@ -1,4 +1,5 @@
 using CaseRegister.Domain.Accounts;
+using CaseRegister.Domain.Common;
 using Microsoft.AspNetCore.Identity;
 
 namespace CaseRegister.Infrastructure.Identity;
@@ -28,6 +29,19 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public Guid? AgencyId { get; set; }
 
     public AccountStatus AccountStatus { get; set; } = AccountStatus.Pending;
+
+    /// <summary>The earliest date this account's records may be removed (see <see cref="RetentionPolicy"/>). Null while it is current or waiting. Nothing is removed yet.</summary>
+    public DateTimeOffset? RetainUntil { get; set; }
+
+    /// <summary>While set, no removal of this account's records may be considered, whatever <see cref="RetainUntil"/> says.</summary>
+    public bool LegalHold { get; set; }
+
+    /// <summary>Moves the account to a status and works out its retention date from it, in the one place that does.</summary>
+    public void ChangeStatus(AccountStatus status, DateTimeOffset now)
+    {
+        AccountStatus = status;
+        RetainUntil = RetentionPolicy.RetainUntil(status, now);
+    }
 
     /// <summary>Creates a member's account, with its email stored in normalised form. It starts as Pending unless told otherwise.</summary>
     public static ApplicationUser Create(

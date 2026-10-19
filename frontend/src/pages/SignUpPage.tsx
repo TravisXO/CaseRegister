@@ -96,6 +96,17 @@ export function SignUpPage() {
     <div className="page">
       <h1 className="heading">Apply to join</h1>
       <p className="mb-4">For estate agents. An admin checks every application, so you cannot use the register until it has been approved.</p>
+      <p className="mb-4">
+        Before you apply, read the{" "}
+        <Link to="/privacy" className="link">
+          privacy notice
+        </Link>{" "}
+        (what is kept, why, and for how long) and the{" "}
+        <Link to="/terms" className="link">
+          terms
+        </Link>
+        . This is a demonstration: use made-up details.
+      </p>
       <ErrorSummary problems={problems.problems} traceId={problems.traceId} />
       <form onSubmit={onSubmit} noValidate>
         <TextField id="full-name" label="Full name" autoComplete="name" value={form.fullName} onChange={(event) => { set("fullName")(event.target.value); }} error={errorFor(problems.problems, "full-name")} />

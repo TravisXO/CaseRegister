@@ -6,7 +6,7 @@ module.exports = {
     collect: {
       startServerCommand: "node scripts/serve-dist.mjs dist-e2e 4174 --stub-api",
       startServerReadyPattern: "Serving",
-      url: ["http://localhost:4174/sign-in", "http://localhost:4174/sign-up"],
+      url: ["http://localhost:4174/sign-in", "http://localhost:4174/sign-up", "http://localhost:4174/privacy", "http://localhost:4174/terms"],
       numberOfRuns: 1,
       settings: {
         onlyCategories: ["accessibility", "best-practices", "performance"],
