@@ -147,7 +147,7 @@ public sealed partial class WorkflowFilesTests
         var text = Workflow("ci.yml");
         var restores = Regex.Matches(text, @"dotnet restore [^\n]*").Select(match => match.Value).ToList();
 
-        Assert.Equal(2, restores.Count); // the build job and the vulnerability job
+        Assert.Equal(3, restores.Count); // the build job, the vulnerability job and the bill-of-materials job
         Assert.All(restores, restore => Assert.Contains("--locked-mode", restore, StringComparison.Ordinal));
         Assert.Contains("-warnaserror", text, StringComparison.Ordinal);
         Assert.Matches(@"dotnet build CaseRegister\.slnx[^\n]*--no-restore[^\n]*-warnaserror", text);
@@ -372,11 +372,11 @@ public sealed partial class WorkflowFilesTests
     }
 
     [Fact]
-    public void Dependabot_has_exactly_those_four_ecosystems()
+    public void Dependabot_has_exactly_those_ecosystems_with_docker_for_the_images_in_workflows_as_well()
     {
         var config = Read(".github", "dependabot.yml");
 
-        Assert.Equal(["nuget", "npm", "github-actions", "docker"], Regex.Matches(config, @"(?m)^  - package-ecosystem: ([\w-]+)").Select(match => match.Groups[1].Value));
+        Assert.Equal(["nuget", "npm", "github-actions", "docker", "docker"], Regex.Matches(config, @"(?m)^  - package-ecosystem: ([\w-]+)").Select(match => match.Groups[1].Value));
     }
 
     // --- Locked restores -----------------------------------------------------------------------------------------

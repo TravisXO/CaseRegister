@@ -20,7 +20,7 @@ concurrency:
 
 env:
   # pg_dump has to be at least as new as the server, so it runs from the same major version as the database (Neon, PostgreSQL 18).
-  POSTGRES_IMAGE: postgres:18
+  POSTGRES_IMAGE: postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
 
 jobs:
   backup:

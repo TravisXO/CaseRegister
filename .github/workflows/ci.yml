@@ -285,3 +285,60 @@ jobs:
           path: frontend/.lighthouseci
           if-no-files-found: ignore
           retention-days: 14
+
+  # A tag can be moved to other contents; a digest cannot. Every FROM in every Dockerfile, and every image a workflow names, must carry one.
+  image-pins:
+    name: Images pinned by digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check
+        run: bash scripts/check-image-pins.sh
+
+  # A software bill of materials (CycloneDX) for the API and for the front end, kept with the run. The release workflow makes the same two
+  # and attaches them to a release with a provenance attestation.
+  sbom:
+    name: Software bill of materials
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Restore (locked)
+        run: |
+          dotnet restore CaseRegister.slnx --locked-mode
+          dotnet tool restore
+
+      - name: Install the front end's packages
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Make both
+        run: bash scripts/make-sboms.sh sbom
+
+      - name: Keep them
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom
+          if-no-files-found: error
+          retention-days: 30
+

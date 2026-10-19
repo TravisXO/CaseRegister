@@ -1,0 +1,72 @@
+name: Release
+
+# When a tag starting with v is pushed (for example v0.2.0): make the software bills of materials for the API and the front end, attach both to
+# a GitHub release, and sign a provenance attestation for each. The attestation says which workflow, in which repository, at which commit made
+# the file, and anyone can check it:  gh attestation verify caseregister-api.cdx.json --repo <owner>/<repo>
+on:
+  push:
+    tags: ["v*"]
+
+# Read-only unless a job asks for more.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Bills of materials, attestations, release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # to create the release and attach the files
+      id-token: write # to sign the attestations
+      attestations: write # to store them
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Restore (locked)
+        run: |
+          dotnet restore CaseRegister.slnx --locked-mode
+          dotnet tool restore
+
+      - name: Install the front end's packages
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Make the bills of materials
+        run: bash scripts/make-sboms.sh sbom
+
+      - name: Attest the API's bill of materials
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: sbom/caseregister-api.cdx.json
+
+      - name: Attest the front end's bill of materials
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: sbom/caseregister-frontend.cdx.json
+
+      # The tag is passed through the environment, not put into the command, so a tag name cannot be run as a command.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: >
+          gh release create "$TAG" sbom/caseregister-api.cdx.json sbom/caseregister-frontend.cdx.json
+          --title "$TAG" --generate-notes --verify-tag
