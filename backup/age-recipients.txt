@@ -2,3 +2,5 @@
 # A public key is safe to commit: it can only lock a backup, never open one. The private key stays offline.
 # docs/runbooks/backup-and-restore.md ("Make the age key pairs") says how to make the pair and what to put here.
 # While this file has no key in it, the backup workflow skips with a notice and takes no backup.
+
+age1j9s3wdkum52uxhpcjl8twrmn22hfjrrh3wkherm6tu0exsg99cdqpzzaz0
