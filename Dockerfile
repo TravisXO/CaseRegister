@@ -5,7 +5,7 @@
 # environment variable when the container starts.
 
 # ---- Build: restore, then publish. The SDK image is not part of what ships. ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
 WORKDIR /src
 
 # Project files and their lock files first, so the restore layer is reused until a package changes. Locked mode: the restore
